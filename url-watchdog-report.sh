@@ -7,7 +7,7 @@
 #   url-watchdog-report.sh           → informe diario (default)
 #   url-watchdog-report.sh --weekly  → informe semanal comparativo
 # ============================================================
-VERSION="2.2.0"
+VERSION="2.3.0"
 
 set -uo pipefail
 
@@ -145,6 +145,36 @@ send_daily_report() {
     fi
   fi
 
+  # Certificados TLS próximos a expirar — sección solo si hay avisos
+  local tls_section=""
+  if command -v openssl > /dev/null 2>&1; then
+    local warn_days="${CERT_EXPIRY_WARN_DAYS:-14}"
+    local now_ts tls_lines=""
+    now_ts=$(date +%s)
+    local _tls_url_list
+    IFS=',' read -ra _tls_url_list <<< "$URLS"
+    for _tls_u in "${_tls_url_list[@]}"; do
+      _tls_u=$(echo "$_tls_u" | tr -d '[:space:]')
+      [[ "$_tls_u" =~ ^https:// ]] || continue
+      local _tls_host _tls_expiry_date _tls_expiry_ts _tls_days_left
+      _tls_host=$(printf '%s' "$_tls_u" | sed 's|https://||' | cut -d'/' -f1 | cut -d':' -f1)
+      _tls_expiry_date=$(echo | timeout 4 openssl s_client -connect "${_tls_host}:443" \
+        -servername "$_tls_host" 2>/dev/null \
+        | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
+      [ -z "$_tls_expiry_date" ] && continue
+      _tls_expiry_ts=$(date -d "$_tls_expiry_date" +%s 2>/dev/null) || continue
+      _tls_days_left=$(( (_tls_expiry_ts - now_ts) / 86400 ))
+      if [ "$_tls_days_left" -le 0 ]; then
+        tls_lines+="  ❌ \`${_tls_host}\` — EXPIRADO\n"
+      elif [ "$_tls_days_left" -le "$warn_days" ]; then
+        tls_lines+="  ⚠️ \`${_tls_host}\` — ${_tls_days_left} días\n"
+      fi
+    done
+    [ -n "$tls_lines" ] && tls_section="
+⚠️ *Certificados próximos a expirar:*
+$(printf '%b' "$tls_lines")"
+  fi
+
   telegram_notify "📅 *Informe Diario — Proxmox Watchdog*
 🖥 $(hostname) — $(date '+%Y-%m-%d %H:%M:%S')
 
@@ -156,7 +186,7 @@ ${fritz_section}
 
 ${incident_section}${instability_section}
 
-${ip_section}"
+${ip_section}${tls_section}"
 
   log "[REPORT] Informe diario enviado."
 }

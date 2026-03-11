@@ -1,0 +1,15 @@
+[Unit]
+Description=Proxmox Watchdog — Timer informe semanal
+Requires=url-watchdog-weekly.service
+
+[Timer]
+# Todos los lunes a la misma hora que el informe diario.
+# La hora se reemplaza durante la instalación con:
+#   sed -i "s/HH:MM/$DAILY_REPORT_TIME/" /etc/systemd/system/url-watchdog-weekly.timer
+#   systemctl daemon-reload
+OnCalendar=Mon *-*-* HH:MM:00
+Persistent=false
+Unit=url-watchdog-weekly.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=URL Watchdog — timer cada minuto
+Requires=url-watchdog.service
+
+[Timer]
+# Ejecutar cada minuto
+OnCalendar=minutely
+# Evitar que varias instancias se solapen (systemd ya lo gestiona con oneshot,
+# pero esto añade una capa extra de seguridad)
+Unit=url-watchdog.service
+# Si el sistema estaba apagado y se perdió una ejecución, no ejecutar al arrancar
+# (el boot lo gestiona url-watchdog-boot.service)
+Persistent=false
+
+[Install]
+WantedBy=timers.target

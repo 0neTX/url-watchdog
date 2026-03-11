@@ -1,0 +1,11 @@
+[Unit]
+Description=Proxmox Watchdog — Informe semanal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/url-watchdog-report.sh --weekly
+User=root
+TimeoutStartSec=60
+SuccessExitStatus=0 1

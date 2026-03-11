@@ -1,0 +1,15 @@
+[Unit]
+Description=Proxmox Watchdog — Timer informe diario
+Requires=url-watchdog-report.service
+
+[Timer]
+# Hora configurable: leer de variable de entorno no es posible en systemd,
+# así que la hora se establece durante la instalación con:
+#   sed -i "s/HH:MM/$DAILY_REPORT_TIME/" /etc/systemd/system/url-watchdog-report.timer
+#   systemctl daemon-reload
+OnCalendar=*-*-* HH:MM:00
+Persistent=false
+Unit=url-watchdog-report.service
+
+[Install]
+WantedBy=timers.target

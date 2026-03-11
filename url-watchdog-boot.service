@@ -1,0 +1,18 @@
+[Unit]
+Description=Proxmox Watchdog — Notificación de arranque
+# Se ejecuta una sola vez tras la primera sincronización de red
+After=network-online.target
+Wants=network-online.target
+# Antes del bot para que el --test vaya antes que el mensaje de arranque del bot
+Before=telegram-bot.service
+
+[Service]
+Type=oneshot
+# Ejecuta el watchdog en modo --test para enviar estado inicial + info Fritz
+ExecStart=/usr/local/bin/url-watchdog.sh --test
+User=root
+TimeoutStartSec=60
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target

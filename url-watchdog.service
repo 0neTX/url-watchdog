@@ -1,0 +1,16 @@
+[Unit]
+Description=URL Watchdog — comprueba conectividad y reinicia si es necesario
+# Esperar a que la red esté completamente disponible antes de ejecutar
+# Garantiza que curl a Telegram y a las URLs funciona desde la primera ejecución
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/url-watchdog.sh
+SuccessExitStatus=0 1
+User=root
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

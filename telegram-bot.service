@@ -1,0 +1,21 @@
+[Unit]
+Description=Proxmox Watchdog — Bot Telegram
+After=network-online.target
+Wants=network-online.target
+After=url-watchdog-boot.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/telegram-bot.sh
+# on-failure: reinicia solo si el proceso termina con código ≠ 0.
+# Un "exit 0" limpio (p.ej. tras /update) NO dispara restart automático,
+# evitando el doble-arranque que ocurría con Restart=always. (#10)
+Restart=on-failure
+RestartSec=10
+User=root
+TimeoutStopSec=15
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

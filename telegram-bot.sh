@@ -251,7 +251,7 @@ cmd_speedtest() {
 
     local start_ts end_ts
     start_ts=$(date +%s%3N)
-    bytes_dl=$(curl --silent --max-time 20 --output /dev/null \
+    bytes_dl=$(curl --silent --max-time 20 --location --output /dev/null \
       --write-out "%{size_download}" "$url" 2>/dev/null) || bytes_dl=0
     end_ts=$(date +%s%3N)
 

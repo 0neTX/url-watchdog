@@ -4,6 +4,7 @@
 #  Uso: source /usr/local/bin/url-watchdog-common.sh
 #  Requiere que las variables del .env estén cargadas antes.
 # ============================================================
+# shellcheck disable=SC2034
 VERSION="2.3.0"
 
 # ============================================================
@@ -24,7 +25,8 @@ VERSION="2.3.0"
 _mktemp_secure() {
   local prefix="${1:-tmp}"
   local dir="${STATE_DIR:-/run/url-watchdog}"
-  mkdir -p "$dir" 2>/dev/null && chmod 700 "$dir" 2>/dev/null || true
+  mkdir -p "$dir" 2>/dev/null
+  chmod 700 "$dir" 2>/dev/null || true
   mktemp --tmpdir="$dir" "${prefix}.XXXXXX"
 }
 
@@ -88,7 +90,8 @@ rotate_log() {
 }
 
 log() {
-  local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+  local msg
+  msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
   echo "$msg"
   echo "$msg" >> "$LOG_FILE"
 }

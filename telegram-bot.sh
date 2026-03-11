@@ -19,7 +19,7 @@ if [ ! -f "$COMMON_LIB" ]; then
   exit 1
 fi
 
-# shellcheck source=/usr/local/bin/url-watchdog-common.sh
+# shellcheck source=url-watchdog-common.sh
 source "$COMMON_LIB"
 load_env "$ENV_FILE"
 
@@ -51,7 +51,7 @@ mkdir -p "$(dirname "$BOT_OFFSET_FILE")"
 # Precalcular array de IDs autorizados
 IFS=',' read -ra ALLOWED_IDS_ARRAY <<< "$ALLOWED_CHAT_IDS"
 for i in "${!ALLOWED_IDS_ARRAY[@]}"; do
-  ALLOWED_IDS_ARRAY[$i]=$(echo "${ALLOWED_IDS_ARRAY[$i]}" | tr -d '[:space:]')
+  ALLOWED_IDS_ARRAY[i]=$(echo "${ALLOWED_IDS_ARRAY[$i]}" | tr -d '[:space:]')
 done
 
 # --- Motivo de arranque -------------------------------------

@@ -30,7 +30,7 @@ if [ ! -f "$COMMON_LIB" ]; then
   echo "[ERROR] Ejecuta el instalador o copia el fichero manualmente." >&2
   exit 1
 fi
-# shellcheck source=/usr/local/bin/url-watchdog-common.sh
+# shellcheck source=url-watchdog-common.sh
 source "$COMMON_LIB"
 load_env "$ENV_FILE"
 
@@ -41,8 +41,6 @@ require_vars "url-watchdog-report.sh" \
   TELEGRAM_MAX_RETRIES TELEGRAM_RETRY_DELAY \
   STATE_SILENCE_FILE NOTIFY_QUEUE_FILE \
   INCIDENTS_FILE
-
-IFS=',' read -ra URL_ARRAY <<< "$URLS"
 
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
 touch "$LOG_FILE" 2>/dev/null || true
@@ -179,10 +177,10 @@ send_weekly_report() {
   this_raw=$(incident_stats 7 0)
   prev_raw=$(incident_stats 7 7)
 
-  local this_total this_resolved this_avg this_max this_wan this_fritz this_server this_spont this_active
-  local prev_total prev_resolved prev_avg _ __ ___ ____ _____ ______
-  IFS='|' read -r this_total this_resolved this_avg this_max this_wan this_fritz this_server this_spont this_active <<< "$this_raw"
-  IFS='|' read -r prev_total prev_resolved prev_avg _ __ ___ ____ _____ <<< "$prev_raw"
+  local this_total this_resolved this_avg this_max this_wan this_fritz this_server this_spont
+  local prev_total prev_avg _ __ ___ ____ _____ ______
+  IFS='|' read -r this_total this_resolved this_avg this_max this_wan this_fritz this_server this_spont _ <<< "$this_raw"
+  IFS='|' read -r prev_total _ prev_avg _ __ ___ ____ _____ <<< "$prev_raw"
 
   # Uptime estimado
   local uptime_pct="100.00"

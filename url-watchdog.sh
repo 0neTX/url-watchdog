@@ -33,7 +33,7 @@ if [ ! -f "$COMMON_LIB" ]; then
   exit 1
 fi
 
-# shellcheck source=/usr/local/bin/url-watchdog-common.sh
+# shellcheck source=url-watchdog-common.sh
 source "$COMMON_LIB"
 load_env "$ENV_FILE"
 
@@ -86,10 +86,10 @@ mkdir -p "$STATE_DIR" && chmod 700 "$STATE_DIR"
 : "${STATE_WATCHMODE_FILE:=${STATE_DIR}/watchdog.watchmode}"
 : "${STATE_LASTRUN_FILE:=${STATE_DIR}/watchdog.lastrun}"
 
-[[ "$WATCHDOG_INTERVAL_MINUTES" =~ ^[0-9]+$ ]] && [ "$WATCHDOG_INTERVAL_MINUTES" -ge 1 ] || {
+if ! [[ "$WATCHDOG_INTERVAL_MINUTES" =~ ^[0-9]+$ ]] || [ "$WATCHDOG_INTERVAL_MINUTES" -lt 1 ]; then
   echo "[ERROR] WATCHDOG_INTERVAL_MINUTES debe ser un entero >= 1 (actual: '${WATCHDOG_INTERVAL_MINUTES}')." >&2
   exit 1
-}
+fi
 
 # ============================================================
 # FAILED_URL_COUNT: set by check_urls(), used by check_instability()
@@ -246,7 +246,7 @@ if [ "$MODE" = "test" ]; then
   log "[TEST] Iniciando comprobación... (v${VERSION})"
   flush_notification_queue
   current_ip=$(get_public_ip || echo "no disponible")
-  fritz_result=$(get_fritz_info) || true
+  fritz_result=$(get_fritz_info true) || true
   fritz_ok=$?
   if [ "$fritz_ok" -eq 0 ]; then
     IFS='|' read -r _ fritz_model fritz_router_uptime fritz_wan_status fritz_wan_uptime _ \
@@ -269,7 +269,7 @@ if [ "$MODE" = "test" ]; then
   fi
   msg=$(build_status_message "🔧 *Proxmox Watchdog — Test (v${VERSION})*" \
     "$current_ip" "$fritz_block")
-  telegram_notify "$msg" && log "[TEST] OK." || log "[TEST] Fallo al enviar."
+  if telegram_notify "$msg"; then log "[TEST] OK."; else log "[TEST] Fallo al enviar."; fi
   exit 0
 fi
 
@@ -288,9 +288,11 @@ if [ "$MODE" = "reset" ]; then
             "$STATE_WATCHMODE_FILE" "$STATE_LASTRUN_FILE"; do
     [ -f "$f" ] && rm -f "$f" && removed+=("$(basename "$f")")
   done
-  [ ${#removed[@]} -eq 0 ] \
-    && log "[RESET] Sin estado activo." \
-    || log "[RESET] Limpiado: ${removed[*]}"
+  if [ ${#removed[@]} -eq 0 ]; then
+    log "[RESET] Sin estado activo."
+  else
+    log "[RESET] Limpiado: ${removed[*]}"
+  fi
   exit 0
 fi
 

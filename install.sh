@@ -116,10 +116,10 @@ cp url-watchdog.service         "$SYSTEMD/"
 cp url-watchdog.timer           "$SYSTEMD/"
 cp url-watchdog-report.service  "$SYSTEMD/"
 cp url-watchdog-report.timer    "$SYSTEMD/"
-[ -f url-watchdog-weekly.service ] && cp url-watchdog-weekly.service "$SYSTEMD/" || true
-[ -f url-watchdog-weekly.timer   ] && cp url-watchdog-weekly.timer   "$SYSTEMD/" || true
+if [ -f url-watchdog-weekly.service ]; then cp url-watchdog-weekly.service "$SYSTEMD/"; fi
+if [ -f url-watchdog-weekly.timer   ]; then cp url-watchdog-weekly.timer   "$SYSTEMD/"; fi
 cp telegram-bot.service         "$SYSTEMD/"
-[ -f url-watchdog-boot.service ] && cp url-watchdog-boot.service "$SYSTEMD/" || true
+if [ -f url-watchdog-boot.service ]; then cp url-watchdog-boot.service "$SYSTEMD/"; fi
 
 echo "==> Instalando tmpfiles.d..."
 if [ -f url-watchdog-tmpfiles.conf ]; then
@@ -134,9 +134,10 @@ if [ -n "$DAILY_TIME" ]; then
     echo "==> Configurando informe diario a las ${DAILY_TIME}..."
     sed -i "s|OnCalendar=.*|OnCalendar=*-*-* ${DAILY_TIME}:00|" \
       "$SYSTEMD/url-watchdog-report.timer"
-    [ -f "$SYSTEMD/url-watchdog-weekly.timer" ] && \
+    if [ -f "$SYSTEMD/url-watchdog-weekly.timer" ]; then
       sed -i "s|OnCalendar=Mon .*|OnCalendar=Mon *-*-* ${DAILY_TIME}:00|" \
-      "$SYSTEMD/url-watchdog-weekly.timer" || true
+        "$SYSTEMD/url-watchdog-weekly.timer"
+    fi
   else
     echo "    ⚠️  DAILY_REPORT_TIME='${DAILY_TIME}' no tiene formato HH:MM. Timer no modificado."
   fi
@@ -148,10 +149,11 @@ systemctl daemon-reload
 echo "==> Habilitando y arrancando servicios..."
 systemctl enable --now url-watchdog.timer
 systemctl enable --now url-watchdog-report.timer
-[ -f "$SYSTEMD/url-watchdog-weekly.timer" ] && systemctl enable --now url-watchdog-weekly.timer || true
+if [ -f "$SYSTEMD/url-watchdog-weekly.timer" ]; then systemctl enable --now url-watchdog-weekly.timer; fi
 systemctl enable --now telegram-bot.service
-[ -f "$SYSTEMD/url-watchdog-boot.service" ] && \
-  systemctl enable url-watchdog-boot.service || true
+if [ -f "$SYSTEMD/url-watchdog-boot.service" ]; then
+  systemctl enable url-watchdog-boot.service
+fi
 
 echo ""
 echo "✅ Instalación completada."

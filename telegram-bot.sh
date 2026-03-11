@@ -1,11 +1,11 @@
 #!/bin/bash
 # ============================================================
 #  telegram-bot.sh — Bot Telegram para control del watchdog
-#  Versión: 2.2.0
+#  Versión: 2.2.1
 # ============================================================
-VERSION="2.2.0"
+VERSION="2.2.1"
 
-set -uo pipefail
+set -o pipefail
 
 ENV_FILE="/etc/url-watchdog/.env"
 COMMON_LIB="/usr/local/bin/url-watchdog-common.sh"

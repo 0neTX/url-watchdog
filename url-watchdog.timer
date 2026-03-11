@@ -1,9 +1,11 @@
 [Unit]
-Description=URL Watchdog — timer cada minuto
+Description=URL Watchdog — timer (modo normal: cada WATCHDOG_INTERVAL_MINUTES / vigilancia: cada minuto)
 Requires=url-watchdog.service
 
 [Timer]
-# Ejecutar cada minuto
+# Dispara cada minuto. El script gestiona la frecuencia real internamente:
+# - modo normal:     ejecuta cada WATCHDOG_INTERVAL_MINUTES (default 5)
+# - modo vigilancia: ejecuta cada minuto cuando alguna URL falla
 OnCalendar=minutely
 # Evitar que varias instancias se solapen (systemd ya lo gestiona con oneshot,
 # pero esto añade una capa extra de seguridad)

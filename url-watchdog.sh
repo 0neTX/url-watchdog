@@ -9,7 +9,7 @@
 #   url-watchdog.sh --status   → estado actual por consola y Telegram
 #   url-watchdog.sh --reset    → limpia el estado de fallo activo
 # ============================================================
-VERSION="2.2.0"
+VERSION="2.3.0"
 
 set -uo pipefail
 
@@ -80,6 +80,16 @@ rotate_log
 
 # Asegurar STATE_DIR
 mkdir -p "$STATE_DIR" && chmod 700 "$STATE_DIR"
+
+# Defaults para variables de modo dual (compatibilidad con .env de versiones anteriores)
+: "${WATCHDOG_INTERVAL_MINUTES:=5}"
+: "${STATE_WATCHMODE_FILE:=${STATE_DIR}/watchdog.watchmode}"
+: "${STATE_LASTRUN_FILE:=${STATE_DIR}/watchdog.lastrun}"
+
+[[ "$WATCHDOG_INTERVAL_MINUTES" =~ ^[0-9]+$ ]] && [ "$WATCHDOG_INTERVAL_MINUTES" -ge 1 ] || {
+  echo "[ERROR] WATCHDOG_INTERVAL_MINUTES debe ser un entero >= 1 (actual: '${WATCHDOG_INTERVAL_MINUTES}')." >&2
+  exit 1
+}
 
 # ============================================================
 # FAILED_URL_COUNT: set by check_urls(), used by check_instability()
@@ -274,7 +284,8 @@ fi
 
 if [ "$MODE" = "reset" ]; then
   removed=()
-  for f in "$STATE_FILE" "$STATE_WAN_FILE" "$STATE_FRITZ_FILE" "$STATE_LAN_FAIL_FILE"; do
+  for f in "$STATE_FILE" "$STATE_WAN_FILE" "$STATE_FRITZ_FILE" "$STATE_LAN_FAIL_FILE" \
+            "$STATE_WATCHMODE_FILE" "$STATE_LASTRUN_FILE"; do
     [ -f "$f" ] && rm -f "$f" && removed+=("$(basename "$f")")
   done
   [ ${#removed[@]} -eq 0 ] \
@@ -285,15 +296,48 @@ fi
 
 # ---------- LÓGICA PRINCIPAL --------------------------------
 
+# ---------- CONTROL DE FRECUENCIA ---------------------------
+# Modo normal:     ejecuta cada WATCHDOG_INTERVAL_MINUTES (bajo consumo).
+# Modo vigilancia: ejecuta cada minuto mientras alguna URL falle.
+# El timer siempre dispara cada minuto; el script decide si realmente corre.
+if [ ! -f "$STATE_WATCHMODE_FILE" ]; then
+  _last_ts=$(_read_state_ts "$STATE_LASTRUN_FILE" 0)
+  _now_ts=$(date +%s)
+  if (( _now_ts - _last_ts < WATCHDOG_INTERVAL_MINUTES * 60 )); then
+    exit 0
+  fi
+fi
+_write_state "$STATE_LASTRUN_FILE" "$(date +%s)"
+
 flush_notification_queue
 check_public_ip
 check_fritz_unexpected_reboot
 check_tls_expiry            # comprobación TLS diaria (#8)
 
-if check_urls; then
+check_urls
+_urls_ok=$?
+
+# --- Transición a modo vigilancia (#watchmode) ---------------
+# Se activa en cuanto alguna URL falla (independientemente de FAIL_MODE/FAIL_QUORUM,
+# que controlan cuándo se toman acciones, no cuándo se intensifica la monitorización).
+if [ "$FAILED_URL_COUNT" -gt 0 ] && [ ! -f "$STATE_WATCHMODE_FILE" ]; then
+  _write_state "$STATE_WATCHMODE_FILE" "$(date +%s)"
+  rm -f "$STATE_PARTIAL_FAIL_FILE" 2>/dev/null || true
+  log "[WATCHMODE] 🔍 Modo vigilancia activado — ${FAILED_URL_COUNT}/${#URL_ARRAY[@]} URL(s) sin respuesta."
+  telegram_notify "🔍 *Watchdog — Modo vigilancia activado*
+🖥 $(hostname) — $(date '+%Y-%m-%d %H:%M:%S')
+
+*${FAILED_URL_COUNT}/${#URL_ARRAY[@]}* URL(s) no responden.
+Comprobando cada minuto hasta recuperación completa.
+Modo detección: \`${FAIL_MODE}\`$([ "${FAIL_MODE}" = "quorum" ] && echo " (quorum: ${FAIL_QUORUM:-2}/${#URL_ARRAY[@]})")"
+fi
+
+if [ "$_urls_ok" -eq 0 ]; then
   # Dentro del umbral — comprobar si hay fallos parciales (#7)
   if [ "$FAILED_URL_COUNT" -gt 0 ]; then
-    check_instability "$FAILED_URL_COUNT" "${#URL_ARRAY[@]}"
+    # En modo vigilancia se suprime check_instability: las comprobaciones son cada minuto
+    # y el usuario ya fue notificado de la activación del modo vigilancia.
+    [ ! -f "$STATE_WATCHMODE_FILE" ] && check_instability "$FAILED_URL_COUNT" "${#URL_ARRAY[@]}"
   else
     # Todo OK: resetear contadores de inestabilidad y LAN
     rm -f "$STATE_PARTIAL_FAIL_FILE" 2>/dev/null || true
@@ -323,6 +367,16 @@ ${recovery_emoji} ${recovery_detail}
 
 *Duración del fallo:* ${TOTAL_MIN} min"
     rm -f "$STATE_FILE" "$STATE_WAN_FILE" "$STATE_FRITZ_FILE" "$STATE_LAN_FAIL_FILE"
+    rm -f "$STATE_WATCHMODE_FILE" 2>/dev/null || true
+  elif [ -f "$STATE_WATCHMODE_FILE" ] && [ "$FAILED_URL_COUNT" -eq 0 ]; then
+    # Modo vigilancia activo sin incidente formal: URLs se recuperaron antes del umbral
+    rm -f "$STATE_WATCHMODE_FILE" "$STATE_PARTIAL_FAIL_FILE" 2>/dev/null || true
+    log "[WATCHMODE] ✅ Modo normal restaurado — todas las URLs responden. Intervalo: ${WATCHDOG_INTERVAL_MINUTES} min."
+    telegram_notify "✅ *Watchdog — Modo normal restaurado*
+🖥 $(hostname) — $(date '+%Y-%m-%d %H:%M:%S')
+
+Todas las URLs responden correctamente.
+Volviendo a comprobaciones cada *${WATCHDOG_INTERVAL_MINUTES} min*."
   fi
   exit 0
 fi

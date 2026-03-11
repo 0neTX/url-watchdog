@@ -4,7 +4,7 @@
 #  Uso: source /usr/local/bin/url-watchdog-common.sh
 #  Requiere que las variables del .env estén cargadas antes.
 # ============================================================
-VERSION="2.2.0"
+VERSION="2.3.0"
 
 # ============================================================
 # ÍNDICE DE MEJORAS v2.2.0
@@ -607,6 +607,16 @@ build_status_message() {
 📬 *Notificaciones en cola:* ${queued}"
   fi
 
+  local watchmode_info=""
+  local _wm_file="${STATE_WATCHMODE_FILE:-${STATE_DIR}/watchdog.watchmode}"
+  if [ -f "$_wm_file" ]; then
+    local _wm_ts _wm_min
+    _wm_ts=$(_read_state_ts "$_wm_file" 0)
+    _wm_min=$(( ($(date +%s) - _wm_ts) / 60 ))
+    watchmode_info="
+🔍 *Modo vigilancia activo* (${_wm_min} min — comprobando cada minuto)"
+  fi
+
   # Descripción del modo (#2 quorum)
   local mode_desc
   case "${FAIL_MODE:-all}" in
@@ -619,7 +629,7 @@ build_status_message() {
   echo "${prefix}
 🖥 $(hostname) — $(date '+%Y-%m-%d %H:%M:%S')
 
-*Estado:* ${fase}${instability_info}
+*Estado:* ${fase}${instability_info}${watchmode_info}
 *IP pública:* \`${current_ip:-desconocida}\`
 *URLs monitorizadas:*
 $(printf '  • %s\n' "${URL_ARRAY[@]}")

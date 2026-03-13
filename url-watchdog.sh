@@ -9,7 +9,7 @@
 #   url-watchdog.sh --status   → estado actual por consola y Telegram
 #   url-watchdog.sh --reset    → limpia el estado de fallo activo
 # ============================================================
-VERSION="2.3.0"
+VERSION="2.4.0"
 
 set -uo pipefail
 
@@ -85,6 +85,8 @@ mkdir -p "$STATE_DIR" && chmod 700 "$STATE_DIR"
 : "${WATCHDOG_INTERVAL_MINUTES:=5}"
 : "${STATE_WATCHMODE_FILE:=${STATE_DIR}/watchdog.watchmode}"
 : "${STATE_LASTRUN_FILE:=${STATE_DIR}/watchdog.lastrun}"
+: "${ESCALATE_MINUTES:=15,60}"
+STATE_ESCALATE_PREFIX="${STATE_DIR}/watchdog.escalate"
 
 if ! [[ "$WATCHDOG_INTERVAL_MINUTES" =~ ^[0-9]+$ ]] || [ "$WATCHDOG_INTERVAL_MINUTES" -lt 1 ]; then
   echo "[ERROR] WATCHDOG_INTERVAL_MINUTES debe ser un entero >= 1 (actual: '${WATCHDOG_INTERVAL_MINUTES}')." >&2
@@ -94,6 +96,24 @@ fi
 # ============================================================
 # FAILED_URL_COUNT: set by check_urls(), used by check_instability()
 FAILED_URL_COUNT=0
+
+# Comprueba si una URL está silenciada por el usuario (/mute).
+# Devuelve 0 (muted) o 1 (no muted). Limpia ficheros expirados.
+_is_url_muted() {
+  local url="$1"
+  local hash mute_file
+  hash=$(printf '%s' "$url" | sha256sum | cut -c1-16)
+  mute_file="${STATE_DIR}/mute_url_${hash}"
+  [ ! -f "$mute_file" ] && return 1
+  local expiry now
+  expiry=$(_read_state_ts "$mute_file")
+  now=$(date +%s)
+  if [ "$now" -ge "$expiry" ]; then
+    rm -f "$mute_file"
+    return 1
+  fi
+  return 0
+}
 
 # check_urls: comprueba todas las URLs.
 # Efectos secundarios:
@@ -131,8 +151,12 @@ check_urls() {
           else                                   reason="HTTP ${http_code} (curl exit ${curl_exit})"
           fi ;;
       esac
-      log "FALLO     $url — ${reason}"
-      (( failed++ )) || true
+      if _is_url_muted "$url"; then
+        log "MUTE      $url — ${reason} (silenciada por usuario)"
+      else
+        log "FALLO     $url — ${reason}"
+        (( failed++ )) || true
+      fi
     fi
   done
 
@@ -370,14 +394,18 @@ ${recovery_emoji} ${recovery_detail}
 *Duración del fallo:* ${TOTAL_MIN} min"
     rm -f "$STATE_FILE" "$STATE_WAN_FILE" "$STATE_FRITZ_FILE" "$STATE_LAN_FAIL_FILE"
     rm -f "$STATE_WATCHMODE_FILE" 2>/dev/null || true
+    rm -f "$STATE_ESCALATE_PREFIX".* 2>/dev/null || true
   elif [ -f "$STATE_WATCHMODE_FILE" ] && [ "$FAILED_URL_COUNT" -eq 0 ]; then
     # Modo vigilancia activo sin incidente formal: URLs se recuperaron antes del umbral
+    _wm_start=$(_read_state_ts "$STATE_WATCHMODE_FILE")
+    _wm_min=$(( ($(date +%s) - _wm_start) / 60 ))
     rm -f "$STATE_WATCHMODE_FILE" "$STATE_PARTIAL_FAIL_FILE" 2>/dev/null || true
     log "[WATCHMODE] ✅ Modo normal restaurado — todas las URLs responden. Intervalo: ${WATCHDOG_INTERVAL_MINUTES} min."
     telegram_notify "✅ *Watchdog — Modo normal restaurado*
 🖥 $(hostname) — $(date '+%Y-%m-%d %H:%M:%S')
 
 Todas las URLs responden correctamente.
+*Duración de la alerta:* ${_wm_min} min
 Volviendo a comprobaciones cada *${WATCHDOG_INTERVAL_MINUTES} min*."
   fi
   exit 0
@@ -398,6 +426,21 @@ fi
 
 FIRST_FAIL=$(_read_state_ts "$STATE_FILE")
 ELAPSED_MIN=$(( (NOW - FIRST_FAIL) / 60 ))
+
+# Escalación de alertas por tiempo transcurrido (#nueva)
+IFS=',' read -ra _esc_thresholds <<< "${ESCALATE_MINUTES}"
+for _thr in "${_esc_thresholds[@]}"; do
+  _thr=$(echo "$_thr" | tr -d '[:space:]')
+  [[ "$_thr" =~ ^[0-9]+$ ]] || continue
+  if [ "$ELAPSED_MIN" -ge "$_thr" ] && [ ! -f "${STATE_ESCALATE_PREFIX}.${_thr}" ]; then
+    touch "${STATE_ESCALATE_PREFIX}.${_thr}"
+    telegram_notify "⏰ *Watchdog — Corte prolongado: ${ELAPSED_MIN} min*
+🖥 $(hostname) — $(date '+%Y-%m-%d %H:%M:%S')
+
+El incidente lleva activo *${ELAPSED_MIN} minutos*.
+El watchdog está monitorizando y actuará según la configuración."
+  fi
+done
 
 # FASE 2: Reconexión WAN forzada
 if [ ! -f "$STATE_WAN_FILE" ]; then

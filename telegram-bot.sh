@@ -3,7 +3,7 @@
 #  telegram-bot.sh — Bot Telegram para control del watchdog
 #  Versión: 2.2.1
 # ============================================================
-VERSION="2.2.1"
+VERSION="2.3.0"
 
 set -o pipefail
 
@@ -214,6 +214,43 @@ $(printf '%b' "$lines")"
   fi
 }
 
+# /check — comprobación inmediata de todas las URLs bajo demanda
+cmd_check() {
+  local chat_id="$1"
+  telegram_send "$chat_id" "⏳ Comprobando URLs monitorizadas..."
+  log "$BL [check] Comprobación bajo demanda desde chat ${chat_id}"
+  local ok=0 fail=0 total=0 total_ms=0 lines=""
+  for u in "${URL_ARRAY[@]}"; do
+    u=$(echo "$u" | tr -d '[:space:]')
+    local detail label
+    detail=$(_check_url_detail "$u")
+    label=$(printf '%s' "$u" | sed 's|https\?://||' | cut -d'/' -f1)
+    (( total++ )) || true
+    if [[ "$detail" == OK* ]]; then
+      local ms="${detail##*|}"
+      if [[ "$ms" =~ ^[0-9]+$ ]]; then (( total_ms += ms )) || true; fi
+      (( ok++ )) || true
+      lines+="  ✅ \`${label}\` — ${ms}ms\n"
+    else
+      local reason="${detail#FAIL|}"
+      (( fail++ )) || true
+      lines+="  ❌ \`${label}\` — ${reason}\n"
+    fi
+  done
+  local avg_ms="—"
+  [ "$ok" -gt 0 ] && avg_ms="$(( total_ms / ok ))ms"
+  local header
+  if [ "$fail" -eq 0 ]; then
+    header="✅ *Todas OK* (${ok}/${total}) — media: ${avg_ms}"
+  else
+    header="⚠️ *${fail} de ${total} URL(s) con fallo*"
+  fi
+  telegram_send "$chat_id" "🔍 *Check bajo demanda*
+${header}
+$(printf '%b' "$lines")"
+  log "$BL [check] ${ok} OK, ${fail} FALLO de ${total} URLs"
+}
+
 cmd_traceroute() {
   local chat_id="$1" host="${2:-$TRACEROUTE_DEFAULT_HOST}"
   if ! [[ "$host" =~ ^[a-zA-Z0-9._-]+$ ]]; then
@@ -377,6 +414,44 @@ cmd_stats() {
 _Fuente: \`${INCIDENTS_FILE}\`_"
 }
 
+# /uptime [días] — porcentaje de disponibilidad por período
+cmd_uptime() {
+  local chat_id="$1" days="${2:-7}"
+  [[ "$days" =~ ^[0-9]+$ ]] || days=7
+  [ "$days" -gt 365 ] && days=365
+
+  local raw
+  raw=$(incident_stats "$days" 0)
+  local total resolved avg_dur max_dur
+  IFS='|' read -r total resolved avg_dur max_dur _ _ _ _ _ <<< "$raw"
+
+  local uptime_pct="100.00"
+  if [ "${resolved:-0}" -gt 0 ] && [ "${avg_dur:-0}" -gt 0 ]; then
+    uptime_pct=$(awk -v resolved="${resolved}" -v avg="${avg_dur}" -v days="${days}" \
+      'BEGIN {
+        total_down = avg * resolved
+        pct = 100 - (total_down / (days * 1440) * 100)
+        if (pct < 0) pct = 0
+        printf "%.2f", pct
+      }')
+  fi
+
+  local body
+  if [ "${total:-0}" -eq 0 ]; then
+    body="✅ Sin incidentes en los últimos *${days} días*."
+  else
+    body="  • Incidentes: ${total}
+  • Resueltos: ${resolved}
+  • Duración media: ${avg_dur:-0} min
+  • Duración máxima: ${max_dur:-0} min"
+  fi
+
+  telegram_send "$chat_id" "📊 *Uptime — últimos ${days} días*
+*Disponibilidad: ${uptime_pct}%*
+${body}"
+  log "$BL [uptime] Consulta de uptime ${days}d desde chat ${chat_id}."
+}
+
 # /version (#13 / #20)
 cmd_version() {
   local chat_id="$1"
@@ -412,9 +487,11 @@ cmd_help() {
   /schedule — próxima ejecución del watchdog
   /history [n|--failed] — últimos N incidentes (--failed: solo con acciones)
   /stats [days] — estadísticas e incidentes (default: 30 días)
+  /uptime [días] — % disponibilidad del período (default: 7 días)
   /version — versiones de scripts instalados
 
 *Diagnóstico*
+  /check — comprobación inmediata de todas las URLs
   /ping [url] — comprobar URL(s); sin argumento: todas las monitorizadas
   /traceroute [host] — trazar ruta hasta un host
   /speedtest — test de velocidad de descarga
@@ -423,6 +500,7 @@ cmd_help() {
 *Acciones*
   /reset — limpiar estado de fallo
   /silence [min|status|off] — silenciar, ver estado o desactivar silencio
+  /mute <url|all> <min> — silenciar URL específica para el watchdog
   /restart wan — reconexión WAN forzada + informe en ${FRITZ_WAN_WAIT_MINUTES} min
   /restart router — reboot FritzBox + informe en ${FRITZ_WAIT_MINUTES} min
   /restart server — reboot del servidor (requiere /confirm)
@@ -604,6 +682,46 @@ cmd_silence() {
   telegram_send "$chat_id" "🔕 Notificaciones silenciadas durante *${minutes} minutos*.
 Usa \`/silence status\` para ver el tiempo restante, o \`/silence off\` para desactivar."
   log "$BL [silence] Silencio ${minutes} min activado desde Telegram."
+}
+
+# /mute <url|all> <minutos> — silenciar URL(s) específica(s) para el watchdog
+cmd_mute() {
+  local chat_id="$1" text="${2:-}"
+  local mute_url mute_min
+  mute_url=$(echo "$text" | awk '{print $2}')
+  mute_min=$(echo "$text" | awk '{print $3}')
+
+  if ! [[ "${mute_min:-}" =~ ^[0-9]+$ ]] || [ "${mute_min:-0}" -lt 1 ]; then
+    telegram_send "$chat_id" "❌ Uso: /mute <url|all> <minutos>
+Ejemplo:  /mute https://mi-host.com 60
+          /mute all 30"
+    return
+  fi
+
+  local expiry
+  expiry=$(( $(date +%s) + mute_min * 60 ))
+
+  if [ "${mute_url:-}" = "all" ]; then
+    for u in "${URL_ARRAY[@]}"; do
+      u=$(echo "$u" | tr -d '[:space:]')
+      local hash
+      hash=$(printf '%s' "$u" | sha256sum | cut -c1-16)
+      _write_state "${STATE_DIR}/mute_url_${hash}" "$expiry"
+    done
+    telegram_send "$chat_id" "🔇 Todas las URLs silenciadas durante *${mute_min} min*."
+    log "$BL [mute] Todas las URLs silenciadas ${mute_min}min desde chat ${chat_id}."
+    return
+  fi
+
+  [[ "$mute_url" =~ ^https?:// ]] || mute_url="https://${mute_url}"
+  local hash
+  hash=$(printf '%s' "$mute_url" | sha256sum | cut -c1-16)
+  _write_state "${STATE_DIR}/mute_url_${hash}" "$expiry"
+  local label
+  label=$(printf '%s' "$mute_url" | sed 's|https\?://||' | cut -d'/' -f1)
+  telegram_send "$chat_id" "🔇 \`${label}\` silenciada durante *${mute_min} min*.
+Las alertas de esta URL no se enviarán al watchdog."
+  log "$BL [mute] URL ${mute_url} silenciada ${mute_min}min desde chat ${chat_id}."
 }
 
 cmd_reboot_fritz() {
@@ -1027,13 +1145,16 @@ dispatch_command() {
     /schedule)      cmd_schedule "$chat_id" ;;
     /history)       cmd_history "$chat_id" "$arg" ;;
     /stats)         cmd_stats "$chat_id" "$arg" ;;
+    /uptime)        cmd_uptime "$chat_id" "$arg" ;;
     /version)       cmd_version "$chat_id" ;;
+    /check)         cmd_check "$chat_id" ;;
     /ping)          cmd_ping "$chat_id" "$arg" ;;
     /traceroute)    cmd_traceroute "$chat_id" "$arg" ;;
     /speedtest)     cmd_speedtest "$chat_id" ;;
     /diagnose)      cmd_diagnose "$chat_id" ;;
     /reset)         cmd_reset "$chat_id" ;;
     /silence)       cmd_silence "$chat_id" "$arg" ;;
+    /mute)          cmd_mute "$chat_id" "$text" ;;
     /restart)       cmd_restart "$chat_id" "$arg" ;;
     /reboot_fritz)  cmd_reboot_fritz "$chat_id" ;;
     /reboot_server) cmd_reboot_server "$chat_id" ;;

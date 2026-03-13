@@ -3,6 +3,8 @@ Description=Proxmox Watchdog — Bot Telegram
 After=network-online.target
 Wants=network-online.target
 After=url-watchdog-boot.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -14,8 +16,6 @@ Restart=on-failure
 RestartSec=10
 User=root
 TimeoutStopSec=15
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 [Install]
 WantedBy=multi-user.target

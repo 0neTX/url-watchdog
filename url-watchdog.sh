@@ -95,7 +95,9 @@ fi
 
 # ============================================================
 # FAILED_URL_COUNT: set by check_urls(), used by check_instability()
+# FAILED_URLS_DETAIL: newline-separated "url — reason" pairs, set by check_urls()
 FAILED_URL_COUNT=0
+FAILED_URLS_DETAIL=""
 
 # Comprueba si una URL está silenciada por el usuario (/mute).
 # Devuelve 0 (muted) o 1 (no muted). Limpia ficheros expirados.
@@ -122,6 +124,7 @@ _is_url_muted() {
 # Retorna: 0 = dentro del umbral (no actuar), 1 = supera umbral (actuar)
 check_urls() {
   local failed=0 total=${#URL_ARRAY[@]} url raw_out http_code time_sec time_ms curl_exit reason
+  FAILED_URLS_DETAIL=""
   for url in "${URL_ARRAY[@]}"; do
     url=$(echo "$url" | tr -d '[:space:]')
 
@@ -155,6 +158,8 @@ check_urls() {
         log "MUTE      $url — ${reason} (silenciada por usuario)"
       else
         log "FALLO     $url — ${reason}"
+        FAILED_URLS_DETAIL="${FAILED_URLS_DETAIL}• \`${url}\` — ${reason}
+"
         (( failed++ )) || true
       fi
     fi
@@ -353,7 +358,8 @@ if [ "$FAILED_URL_COUNT" -gt 0 ] && [ ! -f "$STATE_WATCHMODE_FILE" ]; then
   telegram_notify "🔍 *Watchdog — Modo vigilancia activado*
 🖥 $(hostname) — $(date '+%Y-%m-%d %H:%M:%S')
 
-*${FAILED_URL_COUNT}/${#URL_ARRAY[@]}* URL(s) no responden.
+*${FAILED_URL_COUNT}/${#URL_ARRAY[@]}* URL(s) no responden:
+${FAILED_URLS_DETAIL}
 Comprobando cada minuto hasta recuperación completa.
 Modo detección: \`${FAIL_MODE}\`$([ "${FAIL_MODE}" = "quorum" ] && echo " (quorum: ${FAIL_QUORUM:-2}/${#URL_ARRAY[@]})")"
 fi

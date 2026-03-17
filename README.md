@@ -9,15 +9,17 @@ Monitoriza una o varias URLs cada minuto. Si la conectividad falla de forma sost
 ## Características
 
 - **Monitorización continua** — comprueba N URLs cada minuto vía systemd timer, con latencia registrada en el log
-- **Recuperación en 4 fases** — espera configurable → verificación LAN → reconexión WAN TR-064 → reboot FritzBox → reboot servidor
-- **Verificación de LAN antes de actuar** — si el problema es la red local (no la WAN), el watchdog no toca la Fritz y notifica con diagnóstico diferenciado
+- **Alerta de latencia alta** — notificación Telegram cuando una URL responde pero supera el umbral `LATENCY_WARN_MS`; se recupera sola al normalizarse
+- **Recuperación en 4 fases** — espera configurable → verificación LAN+DNS → reconexión WAN TR-064 → reboot FritzBox → reboot servidor
+- **Verificación de LAN antes de actuar** — distingue entre red local rota (gateway no responde), DNS caído y fallo de WAN; el watchdog solo actúa cuando la LAN está OK
+- **Validación de configuración al arranque** — `validate_config()` verifica que todas las URLs tengan esquema `http(s)://` y que los enteros clave sean válidos antes de ejecutar nada
 - **Tres modos de detección** — `all`, `any` o `quorum N/M` de URLs fallando
 - **Alertas proactivas** — reboot inesperado de Fritz, anomalías de IP, inestabilidad parcial y certificados TLS próximos a expirar
 - **Notificaciones Telegram** — con cola offline: mensajes encolados durante el fallo y reenviados al restaurarse
 - **Bot de control remoto** — diagnóstico en red, estadísticas, informes y actualizaciones remotas
 - **Informe diario y semanal** — el semanal incluye tendencia vs semana anterior
 - **Actualizaciones seguras** — `/update` verifica SHA256 y sintaxis bash antes de instalar
-- **Sin dependencias externas** — solo `bash`, `curl`, `jq`, `awk` y `openssl`
+- **Sin dependencias externas** — solo `bash`, `curl`, `jq`, `awk`, `openssl` y `getent` (glibc)
 
 ---
 
@@ -101,9 +103,10 @@ sudo /usr/local/bin/url-watchdog.sh --test
 
 ```
 URLs fallan durante MAX_FAIL_MINUTES
-  └─ Verificar LAN (ip route + ping gateway)
-      ├─ LAN rota → alerta "LAN local rota", NO actuar sobre Fritz
-      └─ LAN OK
+  └─ Verificar LAN (ip route + ping gateway + getent DNS)
+      ├─ Gateway no responde → alerta "LAN local rota", NO actuar sobre Fritz
+      ├─ DNS no responde   → alerta "DNS caído", NO actuar sobre Fritz
+      └─ LAN + DNS OK
           └─ Reconexión WAN forzada (ForceTermination + RequestConnection)
               ├─ Fritz no accesible → reboot Fritz directo
               └─ FRITZ_WAN_WAIT_MINUTES (default: 2 min)
@@ -138,13 +141,13 @@ URLs fallan durante MAX_FAIL_MINUTES
 | `/ping [url]` | Sin URL: comprueba todas las monitorizadas con latencia. Con URL: una concreta |
 | `/traceroute [host]` | Traza la ruta hasta un host (default: `1.1.1.1`) |
 | `/speedtest` | Test de velocidad de descarga desde CDNs públicos |
-| `/diagnose` | Diagnóstico completo: LAN, Fritz, URLs con latencia, TLS, log |
+| `/diagnose` | Diagnóstico completo: LAN/GW, DNS, Fritz, URLs con latencia, TLS, log |
 
 ### Acciones
 
 | Comando | Descripción |
 |---|---|
-| `/reset` | Limpia el estado de fallo activo (incluido estado LAN) |
+| `/reset` | Limpia el estado de fallo activo (LAN, watchmode y alertas de latencia) |
 | `/silence [min]` | Silencia notificaciones N minutos (default: 30, max: 1440) |
 | `/silence status` | Muestra tiempo restante de silencio |
 | `/silence off` | Desactiva el silencio activo |
@@ -176,6 +179,9 @@ URLs fallan durante MAX_FAIL_MINUTES
 | `watchdog.notify-queue` | Cola de notificaciones (base64, una por línea) |
 | `watchdog.partial-fail` | Contador diario de ciclos con fallos parciales |
 | `watchdog.tls-check` | Fecha de última comprobación TLS (`YYYY-MM-DD`) |
+| `watchdog.watchmode` | Presencia = modo vigilancia activo (comprobación minutely) |
+| `watchdog.lastrun` | Timestamp de la última ejecución real del watchdog |
+| `watchdog.latency-warn_<hash>` | Un fichero por URL con latencia alta activa (hash SHA256 de la URL) |
 | `telegram-bot.pid` | PID del proceso del bot |
 | `telegram-bot.start-reason` | Motivo del último arranque del bot |
 
@@ -199,6 +205,7 @@ URLs fallan durante MAX_FAIL_MINUTES
 | `MAX_FAIL_MINUTES` | `10` | Minutos de fallo sostenido antes de actuar |
 | `HTTP_TIMEOUT` | `10` | Timeout por petición HTTP en segundos |
 | `INSTABILITY_THRESHOLD` | `3` | Ciclos parciales antes de alertar (modo `all`/`quorum`) |
+| `LATENCY_WARN_MS` | `0` | Latencia (ms) a partir de la cual alertar aunque la URL responda. `0` = deshabilitado |
 | `FRITZ_IP` | `192.168.178.1` | IP local de la FritzBox |
 | `FRITZ_USER` | — | Usuario TR-064 |
 | `FRITZ_PASSWORD` | — | Contraseña TR-064 |
@@ -283,7 +290,13 @@ curl -v "http://192.168.178.1:49000/upnp/control/deviceinfo"
 
 ### El watchdog no actúa pese a que Internet falla
 
-Si el log muestra `LAN local rota`, el problema está en la red interna (cable, switch) y el watchdog no intervendrá sobre la Fritz hasta que la LAN se recupere. Si en cambio la LAN está OK pero la WAN falla, el watchdog actuará normalmente.
+`check_local_network()` evalúa tres capas antes de actuar sobre la Fritz:
+
+1. **Gateway** — `ip route` + `ping`. Si falla: `[LAN] Gateway X no responde al ping.`
+2. **DNS** — `getent hosts example.com`. Si falla: `[LAN] ⚠️  DNS no responde`
+3. **WAN** — si LAN+DNS están OK, se ejecutan las fases de recuperación normales
+
+Si el log muestra alguno de los mensajes anteriores, el watchdog NO actuará sobre la Fritz hasta que esa capa se recupere. Usa `/diagnose` para ver el estado de cada capa en tiempo real.
 
 ### Ver estado de todos los servicios
 

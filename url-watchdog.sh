@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 #  url-watchdog.sh — Reinicia el servidor si las URLs fallan
-#  Versión: 2.2.0
+#  Versión: 2.5.0
 # ============================================================
 # Uso:
 #   url-watchdog.sh            → ejecución normal (systemd timer)
@@ -9,7 +9,7 @@
 #   url-watchdog.sh --status   → estado actual por consola y Telegram
 #   url-watchdog.sh --reset    → limpia el estado de fallo activo
 # ============================================================
-VERSION="2.4.0"
+VERSION="2.5.0"
 
 set -uo pipefail
 
@@ -57,6 +57,9 @@ require_vars "url-watchdog.sh" \
 
 IFS=',' read -ra URL_ARRAY <<< "$URLS"
 
+# Validar configuración (#B)
+validate_config "url-watchdog.sh"
+
 # Validar FAIL_QUORUM si mode=quorum (#2)
 if [ "$FAIL_MODE" = "quorum" ]; then
   [[ "${FAIL_QUORUM:-}" =~ ^[0-9]+$ ]] || {
@@ -87,6 +90,10 @@ mkdir -p "$STATE_DIR" && chmod 700 "$STATE_DIR"
 : "${STATE_LASTRUN_FILE:=${STATE_DIR}/watchdog.lastrun}"
 : "${ESCALATE_MINUTES:=15,60}"
 STATE_ESCALATE_PREFIX="${STATE_DIR}/watchdog.escalate"
+
+# Umbral de latencia alta (#C). 0 = deshabilitado.
+: "${LATENCY_WARN_MS:=0}"
+STATE_LATENCY_PREFIX="${STATE_DIR}/watchdog.latency-warn"
 
 if ! [[ "$WATCHDOG_INTERVAL_MINUTES" =~ ^[0-9]+$ ]] || [ "$WATCHDOG_INTERVAL_MINUTES" -lt 1 ]; then
   echo "[ERROR] WATCHDOG_INTERVAL_MINUTES debe ser un entero >= 1 (actual: '${WATCHDOG_INTERVAL_MINUTES}')." >&2
@@ -141,6 +148,33 @@ check_urls() {
 
     if [[ "$http_code" =~ ^[2-3][0-9]{2}$ ]]; then
       log "OK        $url (HTTP ${http_code}, ${time_ms}ms)"
+      # Alerta de latencia alta (#C)
+      if [ "${LATENCY_WARN_MS:-0}" -gt 0 ] && [[ "${time_ms:-0}" =~ ^[0-9]+$ ]]; then
+        local _url_hash _lat_file
+        _url_hash=$(printf '%s' "$url" | sha256sum | cut -c1-16)
+        _lat_file="${STATE_LATENCY_PREFIX}_${_url_hash}"
+        if [ "$time_ms" -ge "$LATENCY_WARN_MS" ]; then
+          if [ ! -f "$_lat_file" ]; then
+            touch "$_lat_file"
+            log "[LATENCY] ⚠️  Latencia alta: ${url} — ${time_ms}ms (umbral: ${LATENCY_WARN_MS}ms)"
+            telegram_notify "⚠️ *Watchdog — Latencia alta detectada*
+🖥 $(hostname) — $(date '+%Y-%m-%d %H:%M:%S')
+
+\`${url}\` responde pero con latencia elevada.
+*Latencia actual:* ${time_ms} ms
+*Umbral configurado:* ${LATENCY_WARN_MS} ms
+
+La URL sigue accesible. Puede indicar degradación de la conexión.
+Usa /diagnose para analizar la red."
+          fi
+        else
+          # Latencia normal — limpiar aviso si existía
+          if [ -f "$_lat_file" ]; then
+            rm -f "$_lat_file"
+            log "[LATENCY] ✅ Latencia normalizada: ${url} — ${time_ms}ms"
+          fi
+        fi
+      fi
     else
       case "$curl_exit" in
         6)  reason="DNS no resuelto" ;;
@@ -316,6 +350,11 @@ if [ "$MODE" = "reset" ]; then
   for f in "$STATE_FILE" "$STATE_WAN_FILE" "$STATE_FRITZ_FILE" "$STATE_LAN_FAIL_FILE" \
             "$STATE_WATCHMODE_FILE" "$STATE_LASTRUN_FILE"; do
     [ -f "$f" ] && rm -f "$f" && removed+=("$(basename "$f")")
+  done
+  # Limpiar ficheros de alerta de latencia (#C)
+  for f in "${STATE_DIR}"/watchdog.latency-warn_*; do
+    [ -f "$f" ] || continue
+    rm -f "$f" && removed+=("$(basename "$f")")
   done
   if [ ${#removed[@]} -eq 0 ]; then
     log "[RESET] Sin estado activo."

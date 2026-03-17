@@ -5,7 +5,7 @@
 #  Requiere que las variables del .env estén cargadas antes.
 # ============================================================
 # shellcheck disable=SC2034
-VERSION="2.3.0"
+VERSION="2.4.0"
 
 # ============================================================
 # ÍNDICE DE MEJORAS v2.2.0
@@ -18,6 +18,10 @@ VERSION="2.3.0"
 #  #8  check_tls_expiry: aviso de certificados TLS próximos a expirar
 #  #9  build_status_message: muestra modo quorum con fracción
 #  #12 (en bot) /diagnose usa check_local_network y latencias
+# v2.4.0:
+#  #A  check_local_network: comprobación DNS además del gateway (return 2)
+#  #B  validate_config: valida URLs y enteros clave al arranque
+#  #C  check_urls: alerta de latencia alta (LATENCY_WARN_MS, STATE_LATENCY_PREFIX)
 # ============================================================
 
 # --- Utilidades internas ------------------------------------
@@ -66,6 +70,49 @@ require_vars() {
       exit 1
     fi
   done
+}
+
+# --- Validación de configuración (#B) -----------------------
+# Verifica que las URLs tengan esquema http(s):// y que los enteros
+# clave sean números válidos. Llama a exit 1 si hay errores.
+# Requiere: URL_ARRAY ya poblado.
+validate_config() {
+  local script="${1:-script}" errors=0
+
+  # Validar esquema de cada URL
+  local _url
+  for _url in "${URL_ARRAY[@]}"; do
+    _url=$(echo "$_url" | tr -d '[:space:]')
+    if ! [[ "$_url" =~ ^https?:// ]]; then
+      echo "[ERROR] ${script}: URL sin esquema http(s)://: '${_url}'" >&2
+      (( errors++ )) || true
+    fi
+  done
+
+  # Validar enteros clave: "VARIABLE:minimo"
+  local _entry _var _min _val
+  for _entry in "MAX_FAIL_MINUTES:1" "HTTP_TIMEOUT:1" \
+                "FRITZ_WAN_WAIT_MINUTES:1" "FRITZ_WAIT_MINUTES:1" \
+                "LATENCY_WARN_MS:0"; do
+    _var="${_entry%%:*}"
+    _min="${_entry##*:}"
+    _val="${!_var:-}"
+    [ -z "$_val" ] && continue   # variable no definida: require_vars ya habrá fallado
+    if ! [[ "$_val" =~ ^[0-9]+$ ]] || [ "$_val" -lt "$_min" ]; then
+      echo "[ERROR] ${script}: ${_var} debe ser un entero >= ${_min} (actual: '${_val}')" >&2
+      (( errors++ )) || true
+    fi
+  done
+
+  # Advertencia de coherencia: tiempo de espera WAN vs Fritz
+  if [[ "${FRITZ_WAN_WAIT_MINUTES:-0}" =~ ^[0-9]+$ ]] && \
+     [[ "${FRITZ_WAIT_MINUTES:-0}" =~ ^[0-9]+$ ]] && \
+     [ "${FRITZ_WAN_WAIT_MINUTES:-0}" -ge "${FRITZ_WAIT_MINUTES:-1}" ]; then
+    echo "[WARN] ${script}: FRITZ_WAN_WAIT_MINUTES (${FRITZ_WAN_WAIT_MINUTES}) >= FRITZ_WAIT_MINUTES (${FRITZ_WAIT_MINUTES}). Considera reducir FRITZ_WAN_WAIT_MINUTES." >&2
+  fi
+
+  [ "$errors" -gt 0 ] && exit 1
+  return 0
 }
 
 # --- Logging ------------------------------------------------
@@ -247,9 +294,12 @@ log_alert() {
 $*"
 }
 
-# --- Red local (#1) -----------------------------------------
-# Comprueba que existe ruta por defecto y que el gateway LAN responde.
-# Retorna 0 si LAN OK, 1 si hay problema de red local.
+# --- Red local (#1 + #A) ------------------------------------
+# Comprueba ruta por defecto, respuesta del gateway y resolución DNS.
+# Retorna:
+#   0 — LAN + DNS OK
+#   1 — sin ruta o gateway no responde
+#   2 — gateway OK pero DNS no responde
 check_local_network() {
   local gateway
   gateway=$(ip route get 1.1.1.1 2>/dev/null | awk '/via/ {print $3}' | head -1)
@@ -260,6 +310,11 @@ check_local_network() {
   if ! ping -c 1 -W 2 "$gateway" > /dev/null 2>&1; then
     log "[LAN] Gateway ${gateway} no responde al ping."
     return 1
+  fi
+  # Comprobación DNS (#A): resolución de nombre externo via getent (glibc)
+  if ! timeout 3 getent hosts "example.com" > /dev/null 2>&1; then
+    log "[LAN] ⚠️  DNS no responde (resolución de example.com fallida)."
+    return 2
   fi
   return 0
 }

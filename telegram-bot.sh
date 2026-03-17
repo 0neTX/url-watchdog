@@ -3,7 +3,7 @@
 #  telegram-bot.sh — Bot Telegram para control del watchdog
 #  Versión: 2.2.1
 # ============================================================
-VERSION="2.3.0"
+VERSION="2.4.0"
 
 set -o pipefail
 
@@ -39,6 +39,10 @@ require_vars "telegram-bot.sh" \
   UPDATE_URL_REPORT UPDATE_URL_CHECKSUMS
 
 IFS=',' read -ra URL_ARRAY <<< "$URLS"
+
+# Validar configuración (#B)
+validate_config "telegram-bot.sh"
+
 BL="[BOT]"
 
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
@@ -797,8 +801,8 @@ cmd_diagnose() {
   local current_ip
   current_ip=$(get_public_ip 2>/dev/null || echo "no disponible")
 
-  # LAN y gateway (#1)
-  local gateway gw_line
+  # LAN y gateway (#1) + DNS (#A)
+  local gateway gw_line dns_line
   gateway=$(ip route get 1.1.1.1 2>/dev/null | awk '/via/ {print $3}' | head -1)
   if [ -z "$gateway" ]; then
     gw_line="❌ Sin ruta por defecto"
@@ -806,6 +810,12 @@ cmd_diagnose() {
     gw_line="✅ Gateway \`${gateway}\` responde"
   else
     gw_line="❌ Gateway \`${gateway}\` no responde"
+  fi
+  # Comprobación DNS (#A)
+  if timeout 3 getent hosts "example.com" > /dev/null 2>&1; then
+    dns_line="✅ DNS OK"
+  else
+    dns_line="❌ DNS no responde (example.com)"
   fi
 
   # Fritz
@@ -876,7 +886,8 @@ $(printf '%b' "$tls_lines")"
 🖥 $(hostname) — $(date '+%Y-%m-%d %H:%M:%S')
 
 *IP pública:* \`${current_ip}\`
-*LAN:* ${gw_line}
+*LAN/GW:* ${gw_line}
+*DNS:* ${dns_line}
 
 *FritzBox:* ${fritz_line}
 

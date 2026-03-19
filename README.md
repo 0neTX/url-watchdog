@@ -68,7 +68,7 @@ url-watchdog/
 ├── Dockerfile                   # Imagen basada en debian:12-slim
 ├── docker-compose.yml           # Servicio url-watchdog (network_mode: host)
 ├── docker-entrypoint.sh         # Entrypoint: genera crontab, arranca crond + bot
-├── url-watchdog-reboot.service  # Unit del HOST — escucha señal de reboot del contenedor
+├── url-watchdog-reboot.service  # Deprecado — sustituido por API Proxmox
 │
 ├── ── Bot de estadísticas de grupo ──────────────────────────────
 ├── bot_estadisticas.py          # Bot Python — Top 5 mensajes del grupo (diario)
@@ -124,11 +124,7 @@ La instalación Docker sustituye los systemd timers por **cron dentro del conten
 #### Requisitos del host
 
 ```bash
-# Docker Engine
 apt install docker.io docker-compose-plugin
-
-# inotify-tools (para url-watchdog-reboot.service en el host)
-apt install inotify-tools
 ```
 
 #### Instalación
@@ -140,33 +136,36 @@ sudo ./install-docker.sh
 ```
 
 El script:
-1. Crea `/opt/url-watchdog/{config,data,log,signals}/`
+1. Crea `/opt/url-watchdog/{config,data,log}/`
 2. Copia la plantilla `.env` a `/opt/url-watchdog/config/.env` y abre el editor
-3. Instala y activa `url-watchdog-reboot.service` en el host
-4. Construye la imagen y arranca el contenedor
+3. Construye la imagen y arranca el contenedor
 
-#### Configuración Docker obligatoria
+#### Configuración obligatoria
 
 ```bash
 nano /opt/url-watchdog/config/.env
 ```
 
-Añade la variable de señal de reboot (ya la incluye `install-docker.sh`):
+Para que la fase 4 de recuperación (reboot del servidor) funcione desde dentro del contenedor, configura las variables Proxmox:
 
 ```bash
-REBOOT_SIGNAL_FILE=/run/signals/reboot.request
+PROXMOX_HOST="192.168.1.10"
+PROXMOX_NODE="pve"
+PROXMOX_TOKEN_ID="root@pam!watchdog"
+PROXMOX_TOKEN_SECRET="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 ```
 
-#### Mecanismo de reboot host ↔ contenedor
+El token necesita el permiso `Sys.PowerMgmt` en el nodo. Créalo en Proxmox → Datacenter → API Tokens.
+
+#### Mecanismo de reboot
 
 ```
-Contenedor escribe /run/signals/reboot.request
-  └─ volumen /opt/url-watchdog/signals → /run/signals
-       └─ url-watchdog-reboot.service (host, inotifywait)
-            └─ detecta el fichero → rm → systemctl reboot
+Watchdog agota fases → request_host_reboot()
+  └─ curl HTTPS → Proxmox API /nodes/{node}/status  command=reboot
+       └─ Proxmox reinicia el nodo (y el contenedor con él)
 ```
 
-El contenedor **no necesita privilegios especiales** (`cap_drop: ALL`, solo `NET_RAW` para ping).
+El contenedor **no necesita privilegios especiales** (`cap_drop: ALL`, solo `NET_RAW` para ping). No se requiere ningún servicio adicional en el host.
 
 #### Comandos útiles
 
@@ -187,7 +186,6 @@ sudo ./uninstall.sh
 
 # Docker
 docker compose down
-sudo systemctl disable --now url-watchdog-reboot.service
 sudo rm -rf /opt/url-watchdog
 ```
 
@@ -325,7 +323,10 @@ URLs fallan durante MAX_FAIL_MINUTES
 | `INCIDENTS_FILE` | `/var/lib/url-watchdog/incidents.json` | Ruta del historial JSON |
 | `INCIDENTS_MAX_ENTRIES` | `500` | Máximo de incidentes antes de rotar el JSON |
 | `HISTORY_DEFAULT_N` | `5` | Incidentes mostrados por defecto con `/history` |
-| `REBOOT_SIGNAL_FILE` | *(vacío)* | **Solo Docker.** Ruta del fichero de señal de reboot dentro del contenedor (ej. `/run/signals/reboot.request`). Vacío = usa `/sbin/reboot` directamente (instalación nativa) |
+| `PROXMOX_HOST` | *(vacío)* | IP o hostname de la API Proxmox (ej. `192.168.1.10`). Vacío = usa `/sbin/reboot` directo |
+| `PROXMOX_NODE` | *(vacío)* | Nombre del nodo Proxmox (ej. `pve`) |
+| `PROXMOX_TOKEN_ID` | *(vacío)* | ID del API token (formato `usuario@realm!nombre`, ej. `root@pam!watchdog`) |
+| `PROXMOX_TOKEN_SECRET` | *(vacío)* | Secret del API token (UUID generado por Proxmox) |
 
 ---
 

@@ -845,26 +845,43 @@ incident_stats() {
   ' "$INCIDENTS_FILE" 2>/dev/null || printf '0|0|0|0|0|0|0|0|0'
 }
 
-# --- Señal de reboot al host (modo Docker) ------------------
-# En instalación nativa (REBOOT_SIGNAL_FILE vacío): ejecuta /sbin/reboot.
-# En Docker: escribe señal en REBOOT_SIGNAL_FILE (volumen compartido)
-# y el servicio del host la detecta y ejecuta systemctl reboot.
+# --- Reboot del nodo Proxmox vía API ------------------------
+# Si PROXMOX_HOST está definido: llama a la API REST de Proxmox.
+# Fallback: /sbin/reboot (instalación nativa sin Proxmox).
+# Las credenciales se pasan a curl via fichero temporal (nunca en args).
 request_host_reboot() {
   local reason="${1:-server_reboot}"
-  if [ -n "${REBOOT_SIGNAL_FILE:-}" ]; then
-    log "[REBOOT] Escribiendo señal de reboot para el host: ${REBOOT_SIGNAL_FILE}"
-    _write_state "${REBOOT_SIGNAL_FILE}" "$(date +%s)|${reason}"
-    # Esperar hasta que el host procese la señal (máx 60s)
-    local waited=0
-    while [ -f "${REBOOT_SIGNAL_FILE}" ] && [ "$waited" -lt 60 ]; do
-      sleep 2
-      (( waited += 2 )) || true
-    done
-    log "[REBOOT] Señal procesada por el host (${waited}s). El sistema se está reiniciando."
-    sleep 30
+
+  if [ -z "${PROXMOX_HOST:-}" ]; then
+    log "[REBOOT] PROXMOX_HOST no configurado. Ejecutando reboot nativo..."
+    /sbin/reboot
+    return
+  fi
+
+  log "[REBOOT] Solicitando reboot del nodo '${PROXMOX_NODE}' en ${PROXMOX_HOST} via API Proxmox..."
+
+  local cfg
+  cfg=$(_mktemp_secure "proxmox-cfg")
+  trap 'rm -f "$cfg"' RETURN
+
+  # Credenciales en fichero temporal 600 dentro de STATE_DIR — nunca en ps ni env
+  printf 'header = "Authorization: PVEAPIToken=%s=%s"\n' \
+    "$PROXMOX_TOKEN_ID" "$PROXMOX_TOKEN_SECRET" > "$cfg"
+
+  local http_code
+  http_code=$(curl --config "$cfg" \
+    --silent --output /dev/null --write-out "%{http_code}" \
+    --insecure \
+    -X POST "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/status" \
+    -d "command=reboot" \
+    -m 10 2>/dev/null)
+
+  if [ "$http_code" = "200" ]; then
+    log "[REBOOT] ✅ Reboot de nodo Proxmox aceptado (HTTP 200). El host se está reiniciando..."
+    sleep 60
     exit 0
   else
-    log "[REBOOT] Ejecutando reboot nativo..."
+    log "[REBOOT] ❌ API Proxmox devolvió HTTP ${http_code:-timeout}. Intentando reboot nativo..."
     /sbin/reboot
   fi
 }

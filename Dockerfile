@@ -33,8 +33,7 @@ RUN mkdir -p \
       /var/lib/url-watchdog \
       /var/log \
       /run/url-watchdog \
-      /run/signals \
-  && chmod 700 /run/url-watchdog /run/signals
+  && chmod 700 /run/url-watchdog
 
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh

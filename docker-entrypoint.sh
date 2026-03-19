@@ -61,8 +61,7 @@ echo "[ENTRYPOINT]   Informe diario:   ${DAILY_HOUR}:${DAILY_MIN}"
 echo "[ENTRYPOINT]   Informe semanal:  lunes ${DAILY_HOUR}:${DAILY_MIN}"
 
 # --- Asegurar directorios de estado -------------------------
-mkdir -p /run/url-watchdog && chmod 700 /run/url-watchdog
-mkdir -p /run/signals      && chmod 700 /run/signals
+mkdir -p /run/url-watchdog     && chmod 700 /run/url-watchdog
 mkdir -p /var/lib/url-watchdog && chmod 700 /var/lib/url-watchdog
 
 # --- Arrancar crond -----------------------------------------

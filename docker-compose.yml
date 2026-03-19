@@ -19,9 +19,6 @@ services:
       # Log accesible desde el host sin entrar al contenedor
       - /opt/url-watchdog/log:/var/log
 
-      # Canal de señal host↔contenedor para el reboot del servidor
-      - /opt/url-watchdog/signals:/run/signals
-
     tmpfs:
       # /run/url-watchdog es estado volátil de fases (watchdog.fail, watchdog.wan, etc.)
       # Debe perderse en cada reinicio del contenedor, igual que el tmpfs del host nativo
@@ -29,12 +26,10 @@ services:
 
     environment:
       - TZ=Europe/Madrid
-      # Indica a los scripts que corren dentro de Docker
-      - DOCKER_MODE=1
 
-    # Sin privilegios especiales — el reboot lo ejecuta el host
+    # NET_RAW: necesario para ping en check_local_network()
+    # El reboot del host se ejecuta via API Proxmox (curl desde dentro del contenedor)
     cap_drop:
       - ALL
     cap_add:
-      # NET_RAW: necesario para ping en check_local_network()
       - NET_RAW

@@ -75,9 +75,11 @@ detect_start_reason() {
     prev_pid=$(cat "$BOT_PID_FILE" 2>/dev/null || echo "")
     if [ -n "$prev_pid" ] && ! kill -0 "$prev_pid" 2>/dev/null; then
       local exit_code
-      exit_code=$(systemctl show telegram-bot.service \
-        --property=ExecMainStatus 2>/dev/null | cut -d= -f2)
-      [ "${exit_code:-0}" != "0" ] && { echo "crash"; return; }
+      if command -v systemctl >/dev/null 2>&1; then
+        exit_code=$(systemctl show telegram-bot.service \
+          --property=ExecMainStatus 2>/dev/null | cut -d= -f2)
+        [ "${exit_code:-0}" != "0" ] && { echo "crash"; return; }
+      fi
       echo "manual_restart"; return
     fi
   fi
@@ -783,7 +785,7 @@ cmd_confirm() {
       telegram_send "$chat_id" "🔴 Reiniciando servidor en 5 segundos..."
       log "$BL [confirm] REBOOT SERVIDOR confirmado (op: ${stored_op}). Reiniciando..."
       sleep 5
-      /sbin/reboot
+      request_host_reboot "telegram_confirm_reboot"
       ;;
     *)
       telegram_send "$chat_id" "❌ Operación desconocida: ${stored_op}."
@@ -1131,9 +1133,14 @@ Revisa el log con /log. Los scripts con error NO fueron reemplazados."
   telegram_send "$chat_id" "♻️ Reiniciando bot con la nueva versión..."
   log "$BL [update] Reiniciando bot..."
 
-  systemctl restart telegram-bot.service &
-  sleep 2
-  exit 0
+  if [ "${DOCKER_MODE:-0}" = "1" ]; then
+    # En Docker: el entrypoint detecta exit 0 y reinicia el proceso del bot
+    exit 0
+  else
+    systemctl restart telegram-bot.service &
+    sleep 2
+    exit 0
+  fi
 }
 
 # --- Dispatcher ---------------------------------------------

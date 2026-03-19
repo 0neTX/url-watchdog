@@ -1,0 +1,33 @@
+[Unit]
+Description=url-watchdog — Gestor de señal de reboot del contenedor Docker
+Documentation=https://github.com/0neTX/url-watchdog
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+
+# Escucha la aparición del fichero de señal en el volumen compartido con el contenedor.
+# Cuando el contenedor escribe /run/signals/reboot.request (montado en /opt/url-watchdog/signals/),
+# este servicio lo detecta, lo borra y ejecuta systemctl reboot.
+# Requiere: apt install inotify-tools
+ExecStartPre=/bin/mkdir -p /opt/url-watchdog/signals
+ExecStart=/bin/bash -c '\
+  SIGNAL_DIR=/opt/url-watchdog/signals; \
+  SIGNAL_FILE=${SIGNAL_DIR}/reboot.request; \
+  echo "[reboot-watcher] Escuchando señal de reboot en ${SIGNAL_FILE}..."; \
+  while inotifywait -e create,moved_to "${SIGNAL_DIR}" 2>/dev/null; do \
+    if [ -f "${SIGNAL_FILE}" ]; then \
+      REASON=$(cat "${SIGNAL_FILE}" 2>/dev/null || echo "desconocido"); \
+      echo "[reboot-watcher] Señal recibida: ${REASON}. Ejecutando reboot del host..."; \
+      rm -f "${SIGNAL_FILE}"; \
+      systemctl reboot; \
+    fi; \
+  done'
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

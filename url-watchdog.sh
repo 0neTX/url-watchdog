@@ -559,5 +559,5 @@ if [ "$FRITZ_ELAPSED_MIN" -ge "$FRITZ_WAIT_MINUTES" ]; then
   incident_action "server_reboot"
   log_alert "🔴 ¡LÍMITE ALCANZADO! Reiniciando servidor..."
   rm -f "$STATE_FILE" "$STATE_WAN_FILE" "$STATE_FRITZ_FILE" "$STATE_LAN_FAIL_FILE"
-  /sbin/reboot
+  request_host_reboot "server_reboot_phase4"
 fi

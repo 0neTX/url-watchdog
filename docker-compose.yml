@@ -1,0 +1,40 @@
+services:
+  url-watchdog:
+    build: .
+    container_name: url-watchdog
+    restart: unless-stopped
+
+    # network_mode: host es necesario para acceder a FritzBox en 192.168.178.1:49000
+    # via TR-064/SOAP y para que ping/traceroute funcionen correctamente
+    network_mode: host
+
+    volumes:
+      # Configuración montada read-only; el contenedor nunca la escribe
+      - /opt/url-watchdog/config/.env:/etc/url-watchdog/.env:ro
+
+      # Estado persistente: incidents.json, telegram-bot.offset, watchdog.tls-check
+      # Debe sobrevivir reinicios del contenedor
+      - /opt/url-watchdog/data:/var/lib/url-watchdog
+
+      # Log accesible desde el host sin entrar al contenedor
+      - /opt/url-watchdog/log:/var/log
+
+      # Canal de señal host↔contenedor para el reboot del servidor
+      - /opt/url-watchdog/signals:/run/signals
+
+    tmpfs:
+      # /run/url-watchdog es estado volátil de fases (watchdog.fail, watchdog.wan, etc.)
+      # Debe perderse en cada reinicio del contenedor, igual que el tmpfs del host nativo
+      - /run/url-watchdog:mode=700,uid=0,gid=0
+
+    environment:
+      - TZ=Europe/Madrid
+      # Indica a los scripts que corren dentro de Docker
+      - DOCKER_MODE=1
+
+    # Sin privilegios especiales — el reboot lo ejecuta el host
+    cap_drop:
+      - ALL
+    cap_add:
+      # NET_RAW: necesario para ping en check_local_network()
+      - NET_RAW

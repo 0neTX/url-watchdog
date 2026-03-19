@@ -1,0 +1,32 @@
+# Credenciales — nunca en la imagen
+.env
+config/
+
+# Archivos de systemd del host (no necesarios en el contenedor)
+*.service
+*.timer
+url-watchdog-tmpfiles.conf
+
+# Instaladores del host
+install.sh
+install-docker.sh
+uninstall.sh
+
+# Documentación y metadatos de desarrollo
+.git/
+.gitignore
+CLAUDE.md
+CHANGELOG.md
+CONTRIBUTING.md
+README.md
+LICENSE
+SHA256SUMS
+*.md
+
+# IDEs
+.vscode/
+.vs/
+settings.local.json
+
+# Plantilla de configuración (el .env real se monta como volumen)
+url-watchdog.env

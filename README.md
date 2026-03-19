@@ -45,11 +45,15 @@ La FritzBox debe tener habilitado el acceso UPnP/TR-064 en su configuración de 
 ```
 url-watchdog/
 ├── url-watchdog-common.sh       # Librería compartida
-├── url-watchdog.sh              # Watchdog principal (systemd timer)
+├── url-watchdog.sh              # Watchdog principal (systemd timer / cron)
 ├── telegram-bot.sh              # Bot Telegram (long-polling)
 ├── url-watchdog-report.sh       # Informe diario (--daily) y semanal (--weekly)
-├── install.sh                   # Instalación/actualización
+├── install.sh                   # Instalación/actualización nativa
+├── uninstall.sh                 # Desinstalación completa
+├── install-docker.sh            # Instalación Docker (alternativa)
 ├── url-watchdog.env             # Plantilla de configuración
+│
+├── ── Systemd (instalación nativa) ──────────────────────────────
 ├── url-watchdog.service         # Unit — watchdog (oneshot)
 ├── url-watchdog.timer           # Unit — timer cada minuto
 ├── url-watchdog-report.service  # Unit — informe diario (oneshot)
@@ -59,6 +63,18 @@ url-watchdog/
 ├── url-watchdog-boot.service    # Unit — notificación de arranque (oneshot)
 ├── telegram-bot.service         # Unit — bot Telegram (daemon)
 ├── url-watchdog-tmpfiles.conf   # tmpfiles.d — crea /run/url-watchdog en boot
+│
+├── ── Docker ────────────────────────────────────────────────────
+├── Dockerfile                   # Imagen basada en debian:12-slim
+├── docker-compose.yml           # Servicio url-watchdog (network_mode: host)
+├── docker-entrypoint.sh         # Entrypoint: genera crontab, arranca crond + bot
+├── url-watchdog-reboot.service  # Unit del HOST — escucha señal de reboot del contenedor
+│
+├── ── Bot de estadísticas de grupo ──────────────────────────────
+├── bot_estadisticas.py          # Bot Python — Top 5 mensajes del grupo (diario)
+├── init_historial.py            # Script one-shot — importa historial con Telethon
+├── requirements.txt             # Dependencias Python (python-telegram-bot, telethon)
+│
 ├── SHA256SUMS                   # Checksums para /update
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
@@ -68,6 +84,8 @@ url-watchdog/
 ---
 
 ## Instalación rápida
+
+### Opción A — Nativa (systemd)
 
 ```bash
 git clone https://github.com/0neTX/url-watchdog.git
@@ -95,6 +113,82 @@ Comprueba que funciona:
 
 ```bash
 sudo /usr/local/bin/url-watchdog.sh --test
+```
+
+---
+
+### Opción B — Docker
+
+La instalación Docker sustituye los systemd timers por **cron dentro del contenedor** y replica exactamente el mismo comportamiento. El reboot del servidor (fase 4 de recuperación) se delega al host mediante una **señal de fichero** en un volumen compartido.
+
+#### Requisitos del host
+
+```bash
+# Docker Engine
+apt install docker.io docker-compose-plugin
+
+# inotify-tools (para url-watchdog-reboot.service en el host)
+apt install inotify-tools
+```
+
+#### Instalación
+
+```bash
+git clone https://github.com/0neTX/url-watchdog.git
+cd url-watchdog
+sudo ./install-docker.sh
+```
+
+El script:
+1. Crea `/opt/url-watchdog/{config,data,log,signals}/`
+2. Copia la plantilla `.env` a `/opt/url-watchdog/config/.env` y abre el editor
+3. Instala y activa `url-watchdog-reboot.service` en el host
+4. Construye la imagen y arranca el contenedor
+
+#### Configuración Docker obligatoria
+
+```bash
+nano /opt/url-watchdog/config/.env
+```
+
+Añade la variable de señal de reboot (ya la incluye `install-docker.sh`):
+
+```bash
+REBOOT_SIGNAL_FILE=/run/signals/reboot.request
+```
+
+#### Mecanismo de reboot host ↔ contenedor
+
+```
+Contenedor escribe /run/signals/reboot.request
+  └─ volumen /opt/url-watchdog/signals → /run/signals
+       └─ url-watchdog-reboot.service (host, inotifywait)
+            └─ detecta el fichero → rm → systemctl reboot
+```
+
+El contenedor **no necesita privilegios especiales** (`cap_drop: ALL`, solo `NET_RAW` para ping).
+
+#### Comandos útiles
+
+```bash
+docker compose logs -f url-watchdog       # Logs del contenedor (bot + entrypoint)
+tail -f /opt/url-watchdog/log/url-watchdog.log  # Log del watchdog
+docker compose ps                         # Estado del contenedor
+docker compose down && docker compose up -d    # Reiniciar
+```
+
+---
+
+### Desinstalación
+
+```bash
+# Nativa
+sudo ./uninstall.sh
+
+# Docker
+docker compose down
+sudo systemctl disable --now url-watchdog-reboot.service
+sudo rm -rf /opt/url-watchdog
 ```
 
 ---
@@ -200,6 +294,7 @@ URLs fallan durante MAX_FAIL_MINUTES
 | Variable | Default | Descripción |
 |---|---|---|
 | `URLS` | — | URLs a monitorizar, separadas por comas |
+| `WATCHDOG_INTERVAL_MINUTES` | `5` | Minutos entre comprobaciones en modo normal. En modo vigilancia (fallo activo) siempre se comprueba cada minuto |
 | `FAIL_MODE` | `all` | `all` / `any` / `quorum` |
 | `FAIL_QUORUM` | `2` | URLs que deben fallar para actuar (solo si `FAIL_MODE=quorum`) |
 | `MAX_FAIL_MINUTES` | `10` | Minutos de fallo sostenido antes de actuar |
@@ -230,6 +325,7 @@ URLs fallan durante MAX_FAIL_MINUTES
 | `INCIDENTS_FILE` | `/var/lib/url-watchdog/incidents.json` | Ruta del historial JSON |
 | `INCIDENTS_MAX_ENTRIES` | `500` | Máximo de incidentes antes de rotar el JSON |
 | `HISTORY_DEFAULT_N` | `5` | Incidentes mostrados por defecto con `/history` |
+| `REBOOT_SIGNAL_FILE` | *(vacío)* | **Solo Docker.** Ruta del fichero de señal de reboot dentro del contenedor (ej. `/run/signals/reboot.request`). Vacío = usa `/sbin/reboot` directamente (instalación nativa) |
 
 ---
 
@@ -247,6 +343,42 @@ URLs fallan durante MAX_FAIL_MINUTES
 ```bash
 sha256sum url-watchdog-common.sh url-watchdog.sh telegram-bot.sh url-watchdog-report.sh > SHA256SUMS
 git add SHA256SUMS && git commit -m "chore: update SHA256SUMS v2.2.0" && git push
+```
+
+---
+
+## Bot de estadísticas de grupo
+
+`bot_estadisticas.py` es un bot Telegram independiente que registra mensajes de un grupo en SQLite y publica un **Top 5 diario** de usuarios más activos.
+
+### Componentes
+
+| Fichero | Rol |
+|---|---|
+| `bot_estadisticas.py` | Bot principal — long-polling, persiste mensajes en BD, publica Top 5 a las 10:00 UTC |
+| `init_historial.py` | Script one-shot — usa Telethon (userbot) para importar el historial completo del grupo |
+| `requirements.txt` | `python-telegram-bot[job-queue]`, `telethon`, `python-dotenv` |
+
+### Variables de entorno necesarias (`.env` separado)
+
+| Variable | Descripción |
+|---|---|
+| `BOT_TOKEN` | Token del bot de estadísticas (de @BotFather) |
+| `GRUPO_ID` | ID numérico del grupo Telegram |
+| `API_ID` | Solo para `init_historial.py` (Telethon — desde my.telegram.org) |
+| `API_HASH` | Solo para `init_historial.py` |
+
+### Uso
+
+```bash
+# 1. Instalar dependencias
+pip install -r requirements.txt
+
+# 2. (Opcional) Importar historial completo — solo la primera vez
+python init_historial.py
+
+# 3. Arrancar el bot de estadísticas
+python bot_estadisticas.py
 ```
 
 ---
@@ -301,7 +433,13 @@ Si el log muestra alguno de los mensajes anteriores, el watchdog NO actuará sob
 ### Ver estado de todos los servicios
 
 ```bash
+# Instalación nativa
 systemctl status url-watchdog.timer url-watchdog-report.timer url-watchdog-weekly.timer telegram-bot.service
+
+# Docker
+docker compose ps
+docker compose logs -f url-watchdog
+systemctl status url-watchdog-reboot.service
 ```
 
 ---

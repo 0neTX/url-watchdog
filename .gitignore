@@ -1,3 +1,5 @@
 .vs/
 .vscode/
 .env
+CLAUDE.md
+settings.local.json

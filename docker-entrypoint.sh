@@ -8,8 +8,8 @@ ENV_FILE="/etc/url-watchdog/.env"
 # --- Validar que el .env está montado -----------------------
 if [ ! -f "$ENV_FILE" ]; then
   echo "[ENTRYPOINT] ERROR: ${ENV_FILE} no encontrado." >&2
-  echo "[ENTRYPOINT] Monta tu .env en docker-compose.yml:" >&2
-  echo "[ENTRYPOINT]   - /opt/url-watchdog/config/.env:${ENV_FILE}:ro" >&2
+  echo "[ENTRYPOINT] Copia .env.example a .env y monta el fichero:" >&2
+  echo "[ENTRYPOINT]   - ./.env:${ENV_FILE}:ro" >&2
   exit 1
 fi
 

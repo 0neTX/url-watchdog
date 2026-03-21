@@ -12,7 +12,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 ENV_FILE="/etc/url-watchdog/.env"
-ENV_TEMPLATE="./url-watchdog.env"
+ENV_TEMPLATE="./.env.example"
 BIN="/usr/local/bin"
 SYSTEMD="/etc/systemd/system"
 STATE_DIR="/run/url-watchdog"

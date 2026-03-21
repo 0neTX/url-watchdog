@@ -1,0 +1,80 @@
+[2026-03-21 08:14:25] [TEST] Iniciando comprobación... (v2.4.0)
+[2026-03-21 08:14:26] [TEST] OK.
+[2026-03-21 08:14:26] [BOT] Arrancado v2.4.0. Motivo: Motivo de arranque desconocido
+[2026-03-21 08:14:26] [BOT] Escuchando comandos... (PID: 201, v2.4.0)
+[2026-03-21 08:14:39] [BOT] [recv] update_id=941343751 chat=195772466 user=@onetx text=/status
+[2026-03-21 08:14:39] [BOT] [cmd] chat=195772466 user=@onetx cmd=/status
+[2026-03-21 08:14:43] [BOT] [recv] update_id=941343752 chat=195772466 user=@onetx text=/fritz
+[2026-03-21 08:14:43] [BOT] [cmd] chat=195772466 user=@onetx cmd=/fritz
+[2026-03-21 08:14:46] [BOT] [recv] update_id=941343753 chat=195772466 user=@onetx text=/ip
+[2026-03-21 08:14:46] [BOT] [cmd] chat=195772466 user=@onetx cmd=/ip
+[2026-03-21 08:14:49] [BOT] [recv] update_id=941343754 chat=195772466 user=@onetx text=/log
+[2026-03-21 08:14:49] [BOT] [cmd] chat=195772466 user=@onetx cmd=/log
+[2026-03-21 08:14:52] [BOT] [recv] update_id=941343755 chat=195772466 user=@onetx text=/history
+[2026-03-21 08:14:52] [BOT] [cmd] chat=195772466 user=@onetx cmd=/history
+[2026-03-21 08:14:52] [BOT] [history] Consultando últimos 5 incidentes
+[2026-03-21 08:14:56] [BOT] [recv] update_id=941343756 chat=195772466 user=@onetx text=/stats
+[2026-03-21 08:14:56] [BOT] [cmd] chat=195772466 user=@onetx cmd=/stats
+[2026-03-21 08:14:56] [BOT] [stats] Estadísticas de los últimos 30 días
+[2026-03-21 08:14:59] [BOT] [recv] update_id=941343757 chat=195772466 user=@onetx text=/schedule
+[2026-03-21 08:14:59] [BOT] [cmd] chat=195772466 user=@onetx cmd=/schedule
+[2026-03-21 08:20:28] [TEST] Iniciando comprobación... (v2.4.0)
+[2026-03-21 08:20:29] [TEST] OK.
+[2026-03-21 08:20:29] [BOT] Arrancado v2.4.0. Motivo: Motivo de arranque desconocido
+[2026-03-21 08:20:29] [BOT] Escuchando comandos... (PID: 201, v2.4.0)
+[2026-03-21 08:20:40] [TEST] Iniciando comprobación... (v2.4.0)
+[2026-03-21 08:20:41] [TEST] OK.
+[2026-03-21 08:20:41] [BOT] Arrancado v2.4.0. Motivo: Motivo de arranque desconocido
+[2026-03-21 08:20:41] [BOT] Escuchando comandos... (PID: 201, v2.4.0)
+[2026-03-21 08:20:46] [BOT] [recv] update_id=941343758 chat=195772466 user=@onetx text=/schedule
+[2026-03-21 08:20:46] [BOT] [cmd] chat=195772466 user=@onetx cmd=/schedule
+[2026-03-21 08:21:04] [BOT] [recv] update_id=941343759 chat=195772466 user=@onetx text=/ping
+[2026-03-21 08:21:04] [BOT] [cmd] chat=195772466 user=@onetx cmd=/ping
+[2026-03-21 08:21:04] [BOT] [ping] Comprobando todas las URLs
+[2026-03-21 08:21:11] [BOT] [recv] update_id=941343760 chat=195772466 user=@onetx text=/log
+[2026-03-21 08:21:11] [BOT] [cmd] chat=195772466 user=@onetx cmd=/log
+[2026-03-21 08:21:15] [BOT] [recv] update_id=941343761 chat=195772466 user=@onetx text=/traceroute
+[2026-03-21 08:21:15] [BOT] [cmd] chat=195772466 user=@onetx cmd=/traceroute
+[2026-03-21 08:21:15] [BOT] [traceroute] Destino: 1.1.1.1
+[2026-03-21 08:21:19] [BOT] [recv] update_id=941343762 chat=195772466 user=@onetx text=/log
+[2026-03-21 08:21:19] [BOT] [cmd] chat=195772466 user=@onetx cmd=/log
+[2026-03-21 08:21:23] [BOT] [recv] update_id=941343763 chat=195772466 user=@onetx text=/diagnose
+[2026-03-21 08:21:23] [BOT] [cmd] chat=195772466 user=@onetx cmd=/diagnose
+[2026-03-21 08:21:23] [BOT] [diagnose] Diagnóstico completo solicitado desde chat 195772466
+[2026-03-21 08:21:37] [BOT] [recv] update_id=941343764 chat=195772466 user=@onetx text=/version
+[2026-03-21 08:21:37] [BOT] [cmd] chat=195772466 user=@onetx cmd=/version
+[2026-03-21 08:21:38] [BOT] [version] Consulta de versiones desde chat 195772466.
+[2026-03-21 08:22:15] [TEST] Iniciando comprobación... (v2.4.0)
+[2026-03-21 08:22:16] [TEST] OK.
+[2026-03-21 08:22:16] [BOT] Arrancado v2.4.0. Motivo: Motivo de arranque desconocido
+[2026-03-21 08:22:16] [BOT] Escuchando comandos... (PID: 201, v2.4.0)
+[2026-03-21 08:22:16] [BOT] [recv] update_id=941343765 chat=195772466 user=@onetx text=/restart
+[2026-03-21 08:22:16] [BOT] [cmd] chat=195772466 user=@onetx cmd=/restart
+[2026-03-21 08:22:42] [BOT] [recv] update_id=941343766 chat=195772466 user=@onetx text=/restart wan
+[2026-03-21 08:22:42] [BOT] [cmd] chat=195772466 user=@onetx cmd=/restart arg=wan
+[2026-03-21 08:22:42] [BOT] [restart/wan] Reconexión WAN solicitada desde Telegram.
+[2026-03-21 08:22:42] [BOT] [restart/wan] No se pudo forzar reconexión WAN.
+[2026-03-21 08:22:54] [BOT] Error al obtener updates. Reintentando en 10s...
+[2026-03-21 08:27:52] [TEST] Iniciando comprobación... (v2.4.0)
+[2026-03-21 08:27:52] [TEST] OK.
+[2026-03-21 08:27:52] [BOT] Arrancado v2.4.0. Motivo: Motivo de arranque desconocido
+[2026-03-21 08:27:53] [BOT] Escuchando comandos... (PID: 201, v2.4.0)
+[2026-03-21 08:32:59] [TEST] Iniciando comprobación... (v2.4.0)
+[2026-03-21 08:33:00] [TEST] OK.
+[2026-03-21 08:33:00] [BOT] Arrancado v2.4.0. Motivo: Motivo de arranque desconocido
+[2026-03-21 08:33:00] [BOT] Escuchando comandos... (PID: 207, v2.4.0)
+[2026-03-21 08:33:13] [BOT] [recv] update_id=941343767 chat=195772466 user=@onetx text=/diagnose
+[2026-03-21 08:33:13] [BOT] [cmd] chat=195772466 user=@onetx cmd=/diagnose
+[2026-03-21 08:33:13] [BOT] [diagnose] Diagnóstico completo solicitado desde chat 195772466
+[2026-03-21 08:33:34] [TEST] Iniciando comprobación... (v2.4.0)
+[2026-03-21 08:33:34] [TEST] OK.
+[2026-03-21 08:33:34] [BOT] Arrancado v2.4.0. Motivo: Motivo de arranque desconocido
+[2026-03-21 08:33:34] [BOT] Escuchando comandos... (PID: 207, v2.4.0)
+[2026-03-21 08:34:02] [BOT] [recv] update_id=941343768 chat=195772466 user=@onetx text=/diagnose
+[2026-03-21 08:34:02] [BOT] [cmd] chat=195772466 user=@onetx cmd=/diagnose
+[2026-03-21 08:34:02] [BOT] [diagnose] Diagnóstico completo solicitado desde chat 195772466
+[2026-03-21 08:35:36] [TEST] Iniciando comprobación... (v2.4.0)
+[2026-03-21 08:35:37] [TEST] OK.
+[2026-03-21 08:35:37] [BOT] Arrancado v2.4.0. Motivo: Motivo de arranque desconocido
+[2026-03-21 08:35:37] [BOT] [diagnose] Diagnóstico completo solicitado desde chat 195772466
+[2026-03-21 08:35:38] [BOT] Escuchando comandos... (PID: 207, v2.4.0)

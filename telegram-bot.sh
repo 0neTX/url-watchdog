@@ -34,9 +34,7 @@ require_vars "telegram-bot.sh" \
   FRITZ_WAN_WAIT_MINUTES FRITZ_WAIT_MINUTES HTTP_TIMEOUT \
   CONFIRM_TIMEOUT LOG_DEFAULT_LINES HISTORY_DEFAULT_N \
   INCIDENTS_FILE TRACEROUTE_DEFAULT_HOST SPEEDTEST_URLS \
-  TELEGRAM_MAX_RETRIES TELEGRAM_RETRY_DELAY \
-  UPDATE_URL_COMMON UPDATE_URL_WATCHDOG UPDATE_URL_BOT \
-  UPDATE_URL_REPORT UPDATE_URL_CHECKSUMS
+  TELEGRAM_MAX_RETRIES TELEGRAM_RETRY_DELAY
 
 IFS=',' read -ra URL_ARRAY <<< "$URLS"
 
@@ -62,10 +60,7 @@ done
 
 detect_start_reason() {
   if [ -f "$BOT_START_REASON_FILE" ]; then
-    local stored_reason
-    stored_reason=$(cat "$BOT_START_REASON_FILE")
     rm -f "$BOT_START_REASON_FILE"
-    [ "$stored_reason" = "update" ] && { echo "update"; return; }
   fi
   local uptime_secs
   uptime_secs=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 9999)
@@ -77,7 +72,7 @@ detect_start_reason() {
       local exit_code
       if command -v systemctl >/dev/null 2>&1; then
         exit_code=$(systemctl show telegram-bot.service \
-          --property=ExecMainStatus 2>/dev/null | cut -d= -f2)
+          --property=ExecMainStatus 2>/dev/null | cut -d= -f2 || echo "")
         [ "${exit_code:-0}" != "0" ] && { echo "crash"; return; }
       fi
       echo "manual_restart"; return
@@ -90,9 +85,8 @@ notify_start_reason() {
   local reason="$1" emoji msg
   case "$reason" in
     boot)           emoji="🟢"; msg="Arranque inicial del sistema" ;;
-    manual_restart) emoji="🔄"; msg="Reinicio manual (systemctl restart)" ;;
+    manual_restart) emoji="🔄"; msg="Reinicio manual del bot" ;;
     crash)          emoji="💥"; msg="Reinicio tras caída inesperada (crash)" ;;
-    update)         emoji="⬆️"; msg="Reinicio tras actualización (/update)" ;;
     *)              emoji="❓"; msg="Motivo de arranque desconocido" ;;
   esac
   log "$BL Arrancado v${VERSION}. Motivo: ${msg}"
@@ -512,7 +506,6 @@ cmd_help() {
   /restart server — reboot del servidor (requiere /confirm)
   /reboot\_fritz — reboot Fritz sin informe posterior
   /reboot\_server — reboot servidor sin informe posterior
-  /update — actualizar scripts desde GitHub
 
 ⚠️ /restart server y /reboot\_server requieren /confirm en ${CONFIRM_TIMEOUT}s"
 }
@@ -623,17 +616,37 @@ ${lines}
 }
 
 cmd_schedule() {
-  local chat_id="$1" timer_info
-  timer_info=$(systemctl list-timers url-watchdog.timer --no-pager 2>/dev/null \
-    | grep url-watchdog \
-    | awk '{print "Próxima: "$1" "$2"\nÚltima: "$5" "$6}') || true
-  [ -z "${timer_info:-}" ] && \
-    timer_info="Timer no encontrado. Ejecuta: systemctl status url-watchdog.timer"
+  local chat_id="$1"
+  local last_str next_str mode_str ts interval next_ts
+
+  if [ -f "${STATE_LASTRUN_FILE:-}" ]; then
+    ts=$(_read_state_ts "$STATE_LASTRUN_FILE" 0)
+  else
+    ts=0
+  fi
+
+  if [ "$ts" -gt 0 ]; then
+    last_str=$(date -d "@${ts}" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "desconocida")
+    if [ -f "${STATE_WATCHMODE_FILE:-}" ]; then
+      interval=60
+      mode_str="vigilancia (cada 1 min)"
+    else
+      interval=$(( ${WATCHDOG_INTERVAL_MINUTES:-5} * 60 ))
+      mode_str="normal (cada ${WATCHDOG_INTERVAL_MINUTES:-5} min)"
+    fi
+    next_ts=$(( ts + interval ))
+    next_str=$(date -d "@${next_ts}" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "~${WATCHDOG_INTERVAL_MINUTES:-5} min")
+  else
+    last_str="sin datos (aún no ha corrido)"
+    next_str="próximo ciclo de cron"
+    mode_str="normal (cada ${WATCHDOG_INTERVAL_MINUTES:-5} min)"
+  fi
+
   telegram_send "$chat_id" "🕐 *Planificación del Watchdog*
 
-${timer_info}
-
-*Intervalo:* cada 1 minuto"
+*Última ejecución:* \`${last_str}\`
+*Próxima ejecución:* \`${next_str}\`
+*Modo actual:* ${mode_str}"
 }
 
 cmd_reset() {
@@ -1035,113 +1048,6 @@ _Nota: el bot enviará la notificación de arranque cuando el servidor vuelva._"
   esac
 }
 
-# ---- /update con verificación SHA256 -----------------------
-
-cmd_update() {
-  local chat_id="$1"
-  telegram_send "$chat_id" "⬆️ Iniciando actualización de scripts..."
-  log "$BL [update] Actualización iniciada desde Telegram por chat ${chat_id}."
-
-  local checksums_tmp
-  checksums_tmp=$(_mktemp_secure "sha256sums")
-  local http_code
-  http_code=$(curl --silent --max-time 30 \
-    --write-out "%{http_code}" \
-    --output "$checksums_tmp" \
-    "$UPDATE_URL_CHECKSUMS" 2>/dev/null) || http_code="000"
-
-  if [ "$http_code" != "200" ] || [ ! -s "$checksums_tmp" ]; then
-    rm -f "$checksums_tmp"
-    telegram_send "$chat_id" "❌ No se pudo descargar SHA256SUMS (HTTP ${http_code}).
-Actualización cancelada. Comprueba UPDATE\_URL\_CHECKSUMS en el .env."
-    log "$BL [update] ❌ Fallo descargando SHA256SUMS (HTTP ${http_code})."
-    return
-  fi
-
-  local -a SCRIPT_NAMES=(
-    "url-watchdog-common.sh"
-    "url-watchdog.sh"
-    "telegram-bot.sh"
-    "url-watchdog-report.sh"
-  )
-  local -A SCRIPT_URLS=(
-    ["url-watchdog-common.sh"]="$UPDATE_URL_COMMON"
-    ["url-watchdog.sh"]="$UPDATE_URL_WATCHDOG"
-    ["telegram-bot.sh"]="$UPDATE_URL_BOT"
-    ["url-watchdog-report.sh"]="$UPDATE_URL_REPORT"
-  )
-
-  local failed=0
-
-  for script in "${SCRIPT_NAMES[@]}"; do
-    local url="${SCRIPT_URLS[$script]}"
-    local dest="/usr/local/bin/${script}"
-    local tmp
-    tmp=$(_mktemp_secure "update-${script}")
-
-    local dl_code
-    dl_code=$(curl --silent --max-time 30 \
-      --write-out "%{http_code}" --output "$tmp" \
-      "$url" 2>/dev/null) || dl_code="000"
-
-    if [ "$dl_code" != "200" ] || [ ! -s "$tmp" ]; then
-      log "$BL [update] ❌ Fallo descargando ${script} (HTTP ${dl_code})."
-      rm -f "$tmp"; (( failed++ )) || true; continue
-    fi
-
-    local expected_hash
-    expected_hash=$(grep "[[:space:]]${script}$" "$checksums_tmp" \
-      | awk '{print $1}' | head -1)
-    if [ -z "${expected_hash:-}" ]; then
-      log "$BL [update] ❌ ${script} no encontrado en SHA256SUMS."
-      rm -f "$tmp"; (( failed++ )) || true; continue
-    fi
-
-    local actual_hash
-    actual_hash=$(sha256sum "$tmp" | awk '{print $1}')
-    if [ "$actual_hash" != "$expected_hash" ]; then
-      log "$BL [update] ❌ ${script}: hash no coincide (esperado ${expected_hash}, obtenido ${actual_hash})."
-      rm -f "$tmp"; (( failed++ )) || true; continue
-    fi
-
-    if ! bash -n "$tmp" 2>/dev/null; then
-      log "$BL [update] ❌ ${script}: errores de sintaxis bash."
-      rm -f "$tmp"; (( failed++ )) || true; continue
-    fi
-
-    local new_ver
-    new_ver=$(grep -m1 '^VERSION=' "$tmp" 2>/dev/null | cut -d'"' -f2 || echo "?")
-    mv "$tmp" "$dest" && chmod +x "$dest"
-    log "$BL [update] ✅ ${script} actualizado a v${new_ver}."
-  done
-
-  rm -f "$checksums_tmp"
-
-  if [ "$failed" -gt 0 ]; then
-    telegram_send "$chat_id" "⚠️ Actualización completada con *${failed} errores*.
-Revisa el log con /log. Los scripts con error NO fueron reemplazados."
-    log "$BL [update] Completada con ${failed} errores."
-    return
-  fi
-
-  telegram_send "$chat_id" "✅ Scripts actualizados y verificados. Recargando servicios..."
-  systemctl daemon-reload
-
-  printf 'update\n' > "$BOT_START_REASON_FILE"
-  printf '%s\n' "$$" > "$BOT_PID_FILE"
-
-  telegram_send "$chat_id" "♻️ Reiniciando bot con la nueva versión..."
-  log "$BL [update] Reiniciando bot..."
-
-  if [ "${DOCKER_MODE:-0}" = "1" ]; then
-    # En Docker: el entrypoint detecta exit 0 y reinicia el proceso del bot
-    exit 0
-  else
-    systemctl restart telegram-bot.service &
-    sleep 2
-    exit 0
-  fi
-}
 
 # --- Dispatcher ---------------------------------------------
 
@@ -1177,7 +1083,6 @@ dispatch_command() {
     /reboot_fritz)  cmd_reboot_fritz "$chat_id" ;;
     /reboot_server) cmd_reboot_server "$chat_id" ;;
     /confirm)       cmd_confirm "$chat_id" ;;
-    /update)        cmd_update "$chat_id" ;;
     /start)         cmd_help "$chat_id" ;;
     *)
       if [ -f "$STATE_CONFIRM_FILE" ]; then
@@ -1201,6 +1106,7 @@ START_REASON=$(detect_start_reason)
 printf '%s\n' "$$" > "$BOT_PID_FILE"
 flush_notification_queue
 notify_start_reason "$START_REASON"
+cmd_diagnose "$TELEGRAM_CHAT_ID"
 
 log "$BL Escuchando comandos... (PID: $$, v${VERSION})"
 

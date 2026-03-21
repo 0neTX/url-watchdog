@@ -1,6 +1,11 @@
 services:
+
+  # ── Watchdog de conectividad + bot Telegram de control ──────────────────────
   url-watchdog:
-    build: .
+    image: ghcr.io/0netx/url-watchdog:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: url-watchdog
     restart: unless-stopped
 
@@ -9,27 +14,26 @@ services:
     network_mode: host
 
     volumes:
-      # Configuración montada read-only; el contenedor nunca la escribe
-      - /opt/url-watchdog/config/.env:/etc/url-watchdog/.env:ro
+      # Configuración montada read-only desde la raíz del proyecto
+      - ./.env:/etc/url-watchdog/.env:ro
 
       # Estado persistente: incidents.json, telegram-bot.offset, watchdog.tls-check
-      # Debe sobrevivir reinicios del contenedor
-      - /opt/url-watchdog/data:/var/lib/url-watchdog
+      - ./data/watchdog:/var/lib/url-watchdog
 
       # Log accesible desde el host sin entrar al contenedor
-      - /opt/url-watchdog/log:/var/log
+      - ./log:/var/log
 
     tmpfs:
       # /run/url-watchdog es estado volátil de fases (watchdog.fail, watchdog.wan, etc.)
-      # Debe perderse en cada reinicio del contenedor, igual que el tmpfs del host nativo
+      # Se pierde en cada reinicio del contenedor, igual que el tmpfs del host nativo
       - /run/url-watchdog:mode=700,uid=0,gid=0
 
     environment:
       - TZ=Europe/Madrid
 
     # NET_RAW: necesario para ping en check_local_network()
-    # El reboot del host se ejecuta via API Proxmox (curl desde dentro del contenedor)
     cap_drop:
       - ALL
     cap_add:
       - NET_RAW
+

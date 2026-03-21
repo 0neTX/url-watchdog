@@ -16,9 +16,8 @@ Monitoriza una o varias URLs cada minuto. Si la conectividad falla de forma sost
 - **Tres modos de detección** — `all`, `any` o `quorum N/M` de URLs fallando
 - **Alertas proactivas** — reboot inesperado de Fritz, anomalías de IP, inestabilidad parcial y certificados TLS próximos a expirar
 - **Notificaciones Telegram** — con cola offline: mensajes encolados durante el fallo y reenviados al restaurarse
-- **Bot de control remoto** — diagnóstico en red, estadísticas, informes y actualizaciones remotas
+- **Bot de control remoto** — diagnóstico en red, estadísticas e informes
 - **Informe diario y semanal** — el semanal incluye tendencia vs semana anterior
-- **Actualizaciones seguras** — `/update` verifica SHA256 y sintaxis bash antes de instalar
 - **Sin dependencias externas** — solo `bash`, `curl`, `jq`, `awk`, `openssl` y `getent` (glibc)
 
 ---
@@ -44,16 +43,23 @@ La FritzBox debe tener habilitado el acceso UPnP/TR-064 en su configuración de 
 
 ```
 url-watchdog/
+├── .env.example                 # Plantilla de configuración
+│
+├── ── Watchdog (bash) ───────────────────────────────────────────
 ├── url-watchdog-common.sh       # Librería compartida
-├── url-watchdog.sh              # Watchdog principal (systemd timer / cron)
+├── url-watchdog.sh              # Watchdog principal (cron dentro del contenedor)
 ├── telegram-bot.sh              # Bot Telegram (long-polling)
 ├── url-watchdog-report.sh       # Informe diario (--daily) y semanal (--weekly)
-├── install.sh                   # Instalación/actualización nativa
-├── uninstall.sh                 # Desinstalación completa
-├── install-docker.sh            # Instalación Docker (alternativa)
-├── url-watchdog.env             # Plantilla de configuración
 │
-├── ── Systemd (instalación nativa) ──────────────────────────────
+├── ── Docker ────────────────────────────────────────────────────
+├── Dockerfile                   # Imagen Alpine — watchdog + bot Telegram
+├── docker-compose.yml           # Servicio url-watchdog
+├── docker-entrypoint.sh         # Entrypoint: genera crontab, arranca crond + bot
+├── install-docker.sh            # Script de primer arranque
+│
+├── ── Instalación nativa (alternativa) ──────────────────────────
+├── install.sh                   # Instalación/actualización nativa con systemd
+├── uninstall.sh                 # Desinstalación completa
 ├── url-watchdog.service         # Unit — watchdog (oneshot)
 ├── url-watchdog.timer           # Unit — timer cada minuto
 ├── url-watchdog-report.service  # Unit — informe diario (oneshot)
@@ -64,18 +70,7 @@ url-watchdog/
 ├── telegram-bot.service         # Unit — bot Telegram (daemon)
 ├── url-watchdog-tmpfiles.conf   # tmpfiles.d — crea /run/url-watchdog en boot
 │
-├── ── Docker ────────────────────────────────────────────────────
-├── Dockerfile                   # Imagen basada en debian:12-slim
-├── docker-compose.yml           # Servicio url-watchdog (network_mode: host)
-├── docker-entrypoint.sh         # Entrypoint: genera crontab, arranca crond + bot
-├── url-watchdog-reboot.service  # Deprecado — sustituido por API Proxmox
-│
-├── ── Bot de estadísticas de grupo ──────────────────────────────
-├── bot_estadisticas.py          # Bot Python — Top 5 mensajes del grupo (diario)
-├── init_historial.py            # Script one-shot — importa historial con Telethon
-├── requirements.txt             # Dependencias Python (python-telegram-bot, telethon)
-│
-├── SHA256SUMS                   # Checksums para /update
+├── SHA256SUMS                   # Checksums de integridad de scripts
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
 └── LICENSE
@@ -83,23 +78,27 @@ url-watchdog/
 
 ---
 
-## Instalación rápida
-
-### Opción A — Nativa (systemd)
+## Instalación rápida — Docker
 
 ```bash
 git clone https://github.com/0neTX/url-watchdog.git
 cd url-watchdog
-sudo ./install.sh
+./install-docker.sh
 ```
+
+El script copia `.env.example` a `.env`, abre el editor y arranca los contenedores.
 
 ### Configuración obligatoria
 
 ```bash
-nano /etc/url-watchdog/.env
+cp .env.example .env
+nano .env
 ```
 
+Variables mínimas a rellenar:
+
 ```bash
+# Watchdog
 URLS="https://google.com,https://1.1.1.1"
 FRITZ_IP="192.168.178.1"
 FRITZ_USER="admin"
@@ -109,44 +108,7 @@ TELEGRAM_CHAT_ID="987654321"
 ALLOWED_CHAT_IDS="987654321"
 ```
 
-Comprueba que funciona:
-
-```bash
-sudo /usr/local/bin/url-watchdog.sh --test
-```
-
----
-
-### Opción B — Docker
-
-La instalación Docker sustituye los systemd timers por **cron dentro del contenedor** y replica exactamente el mismo comportamiento. El reboot del servidor (fase 4 de recuperación) se delega al host mediante una **señal de fichero** en un volumen compartido.
-
-#### Requisitos del host
-
-```bash
-apt install docker.io docker-compose-plugin
-```
-
-#### Instalación
-
-```bash
-git clone https://github.com/0neTX/url-watchdog.git
-cd url-watchdog
-sudo ./install-docker.sh
-```
-
-El script:
-1. Crea `/opt/url-watchdog/{config,data,log}/`
-2. Copia la plantilla `.env` a `/opt/url-watchdog/config/.env` y abre el editor
-3. Construye la imagen y arranca el contenedor
-
-#### Configuración obligatoria
-
-```bash
-nano /opt/url-watchdog/config/.env
-```
-
-Para que la fase 4 de recuperación (reboot del servidor) funcione desde dentro del contenedor, configura las variables Proxmox:
+Para habilitar el reboot del nodo vía Proxmox (fase 4 de recuperación):
 
 ```bash
 PROXMOX_HOST="192.168.1.10"
@@ -157,7 +119,20 @@ PROXMOX_TOKEN_SECRET="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 El token necesita el permiso `Sys.PowerMgmt` en el nodo. Créalo en Proxmox → Datacenter → API Tokens.
 
-#### Mecanismo de reboot
+### Arrancar
+
+```bash
+docker compose up -d
+```
+
+Los datos persisten en subdirectorios del proyecto:
+
+```
+./data/watchdog/   → incidents.json, telegram-bot.offset, watchdog.tls-check
+./log/             → url-watchdog.log, url-watchdog-cron.log
+```
+
+### Mecanismo de reboot
 
 ```
 Watchdog agota fases → request_host_reboot()
@@ -165,29 +140,36 @@ Watchdog agota fases → request_host_reboot()
        └─ Proxmox reinicia el nodo (y el contenedor con él)
 ```
 
-El contenedor **no necesita privilegios especiales** (`cap_drop: ALL`, solo `NET_RAW` para ping). No se requiere ningún servicio adicional en el host.
+El contenedor **no necesita privilegios especiales** (`cap_drop: ALL`, solo `NET_RAW` para ping).
 
-#### Comandos útiles
+### Comandos útiles
 
 ```bash
-docker compose logs -f url-watchdog       # Logs del contenedor (bot + entrypoint)
-tail -f /opt/url-watchdog/log/url-watchdog.log  # Log del watchdog
-docker compose ps                         # Estado del contenedor
-docker compose down && docker compose up -d    # Reiniciar
+docker compose ps                            # Estado del contenedor
+docker compose logs -f url-watchdog          # Logs watchdog + bot Telegram
+tail -f log/url-watchdog.log                 # Log del watchdog en tiempo real
+docker compose down && docker compose up -d  # Reiniciar todo
 ```
-
----
 
 ### Desinstalación
 
 ```bash
-# Nativa
-sudo ./uninstall.sh
-
-# Docker
 docker compose down
-sudo rm -rf /opt/url-watchdog
+rm -rf data log .env
 ```
+
+---
+
+## Instalación nativa (systemd)
+
+Para instalación directa en el host sin Docker:
+
+```bash
+sudo ./install.sh
+sudo /usr/local/bin/url-watchdog.sh --test
+```
+
+La configuración se instala en `/etc/url-watchdog/.env`.
 
 ---
 
@@ -248,7 +230,6 @@ URLs fallan durante MAX_FAIL_MINUTES
 | `/restart server` | Reboot del servidor (requiere `/confirm`) |
 | `/reboot_fritz` | Reboot Fritz sin informe posterior |
 | `/reboot_server` | Reboot del servidor (requiere `/confirm`) |
-| `/update` | Descarga, verifica SHA256 e instala la última versión desde GitHub |
 | `/confirm` | Confirma la operación peligrosa pendiente |
 
 ---
@@ -299,6 +280,7 @@ URLs fallan durante MAX_FAIL_MINUTES
 | `HTTP_TIMEOUT` | `10` | Timeout por petición HTTP en segundos |
 | `INSTABILITY_THRESHOLD` | `3` | Ciclos parciales antes de alertar (modo `all`/`quorum`) |
 | `LATENCY_WARN_MS` | `0` | Latencia (ms) a partir de la cual alertar aunque la URL responda. `0` = deshabilitado |
+| `ESCALATE_MINUTES` | `15,60` | Minutos de corte activo tras los que se envía una alerta de escalada (lista separada por comas; cada umbral se notifica una sola vez) |
 | `FRITZ_IP` | `192.168.178.1` | IP local de la FritzBox |
 | `FRITZ_USER` | — | Usuario TR-064 |
 | `FRITZ_PASSWORD` | — | Contraseña TR-064 |
@@ -330,60 +312,6 @@ URLs fallan durante MAX_FAIL_MINUTES
 
 ---
 
-## Actualización
-
-### Desde el bot
-
-```
-/version     → ver versiones instaladas
-/update      → descargar, verificar e instalar nueva versión
-```
-
-### Generar SHA256SUMS (requerido para `/update`)
-
-```bash
-sha256sum url-watchdog-common.sh url-watchdog.sh telegram-bot.sh url-watchdog-report.sh > SHA256SUMS
-git add SHA256SUMS && git commit -m "chore: update SHA256SUMS v2.2.0" && git push
-```
-
----
-
-## Bot de estadísticas de grupo
-
-`bot_estadisticas.py` es un bot Telegram independiente que registra mensajes de un grupo en SQLite y publica un **Top 5 diario** de usuarios más activos.
-
-### Componentes
-
-| Fichero | Rol |
-|---|---|
-| `bot_estadisticas.py` | Bot principal — long-polling, persiste mensajes en BD, publica Top 5 a las 10:00 UTC |
-| `init_historial.py` | Script one-shot — usa Telethon (userbot) para importar el historial completo del grupo |
-| `requirements.txt` | `python-telegram-bot[job-queue]`, `telethon`, `python-dotenv` |
-
-### Variables de entorno necesarias (`.env` separado)
-
-| Variable | Descripción |
-|---|---|
-| `BOT_TOKEN` | Token del bot de estadísticas (de @BotFather) |
-| `GRUPO_ID` | ID numérico del grupo Telegram |
-| `API_ID` | Solo para `init_historial.py` (Telethon — desde my.telegram.org) |
-| `API_HASH` | Solo para `init_historial.py` |
-
-### Uso
-
-```bash
-# 1. Instalar dependencias
-pip install -r requirements.txt
-
-# 2. (Opcional) Importar historial completo — solo la primera vez
-python init_historial.py
-
-# 3. Arrancar el bot de estadísticas
-python bot_estadisticas.py
-```
-
----
-
 ## Seguridad
 
 | Medida | Descripción |
@@ -393,7 +321,6 @@ python bot_estadisticas.py
 | Parseo seguro del `.env` | Sin `source`; lista negra de variables privilegiadas del shell |
 | Autenticación del bot | Mensajes de `chat_id` no autorizado se ignoran y se loguean |
 | Confirmación de operaciones destructivas | `/restart server` y `/reboot_server` requieren `/confirm` |
-| Verificación en `/update` | SHA256 + `bash -n` antes de instalar cualquier script |
 | Escrituras atómicas | `tmp + mv` en todos los ficheros de estado |
 | `STATE_DIR` protegido | `700 root:root`; `tmpfiles.d` garantiza permisos en cada boot |
 
@@ -434,13 +361,12 @@ Si el log muestra alguno de los mensajes anteriores, el watchdog NO actuará sob
 ### Ver estado de todos los servicios
 
 ```bash
-# Instalación nativa
-systemctl status url-watchdog.timer url-watchdog-report.timer url-watchdog-weekly.timer telegram-bot.service
-
 # Docker
 docker compose ps
 docker compose logs -f url-watchdog
-systemctl status url-watchdog-reboot.service
+
+# Instalación nativa
+systemctl status url-watchdog.timer url-watchdog-report.timer url-watchdog-weekly.timer telegram-bot.service
 ```
 
 ---

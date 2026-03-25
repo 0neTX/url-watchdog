@@ -40,7 +40,7 @@ load_env "$ENV_FILE"
 require_vars "url-watchdog.sh" \
   URLS MAX_FAIL_MINUTES HTTP_TIMEOUT FAIL_MODE \
   STATE_DIR STATE_FILE STATE_IP_FILE STATE_WAN_FILE STATE_FRITZ_FILE \
-  STATE_SILENCE_FILE STATE_FRITZ_UPTIME_FILE STATE_LAN_FAIL_FILE \
+  STATE_SILENCE_FILE STATE_DISABLEREBOOT_FILE STATE_FRITZ_UPTIME_FILE STATE_LAN_FAIL_FILE \
   STATE_IP_CHANGES_FILE STATE_PARTIAL_FAIL_FILE STATE_TLS_CHECK_FILE \
   NOTIFY_QUEUE_FILE \
   LOG_FILE LOG_MAX_BYTES \
@@ -489,6 +489,10 @@ done
 
 # FASE 2: Reconexión WAN forzada
 if [ ! -f "$STATE_WAN_FILE" ]; then
+  if [ -f "$STATE_DISABLEREBOOT_FILE" ]; then
+    log "[DISABLEREBOOT] ⚠️  Acciones correctivas deshabilitadas. Fallo ${ELAPSED_MIN} min — sin actuar sobre Fritz ni servidor."
+    exit 0
+  fi
   if [ "$ELAPSED_MIN" -ge "$MAX_FAIL_MINUTES" ]; then
 
     # Verificar LAN antes de actuar sobre Fritz (#1)
@@ -533,6 +537,12 @@ fi
 
 # FASE 3: Reboot Fritz si WAN no se recuperó
 if [ ! -f "$STATE_FRITZ_FILE" ]; then
+  if [ -f "$STATE_DISABLEREBOOT_FILE" ]; then
+    wan_ts=$(_read_state_ts "$STATE_WAN_FILE")
+    WAN_ELAPSED_MIN=$(( (NOW - wan_ts) / 60 ))
+    log "[DISABLEREBOOT] ⚠️  Acciones correctivas deshabilitadas. WAN sin recuperar ${WAN_ELAPSED_MIN} min — sin reiniciar Fritz."
+    exit 0
+  fi
   wan_ts=$(_read_state_ts "$STATE_WAN_FILE")
   WAN_ELAPSED_MIN=$(( (NOW - wan_ts) / 60 ))
   if [ "$WAN_ELAPSED_MIN" -ge "$FRITZ_WAN_WAIT_MINUTES" ]; then
@@ -553,6 +563,12 @@ fi
 # FASE 4: Reboot servidor
 fritz_ts=$(_read_state_ts "$STATE_FRITZ_FILE")
 FRITZ_ELAPSED_MIN=$(( (NOW - fritz_ts) / 60 ))
+
+if [ -f "$STATE_DISABLEREBOOT_FILE" ]; then
+  log "[DISABLEREBOOT] ⚠️  Acciones correctivas deshabilitadas. Fritz reiniciada hace ${FRITZ_ELAPSED_MIN} min — sin reiniciar servidor."
+  exit 0
+fi
+
 log_alert "⏳ Fritz reiniciada hace ${FRITZ_ELAPSED_MIN} min sin conexión (límite: ${FRITZ_WAIT_MINUTES} min)"
 
 if [ "$FRITZ_ELAPSED_MIN" -ge "$FRITZ_WAIT_MINUTES" ]; then

@@ -27,7 +27,7 @@ require_vars "telegram-bot.sh" \
   TELEGRAM_TOKEN TELEGRAM_CHAT_ID ALLOWED_CHAT_IDS \
   LOG_FILE LOG_MAX_BYTES BOT_OFFSET_FILE BOT_POLL_TIMEOUT \
   BOT_START_REASON_FILE BOT_PID_FILE \
-  STATE_DIR STATE_FILE STATE_WAN_FILE STATE_FRITZ_FILE STATE_SILENCE_FILE \
+  STATE_DIR STATE_FILE STATE_WAN_FILE STATE_FRITZ_FILE STATE_SILENCE_FILE STATE_DISABLEREBOOT_FILE \
   STATE_FRITZ_UPTIME_FILE STATE_CONFIRM_FILE NOTIFY_QUEUE_FILE \
   STATE_PARTIAL_FAIL_FILE STATE_LAN_FAIL_FILE \
   FRITZ_IP FRITZ_USER FRITZ_PASSWORD \
@@ -500,6 +500,7 @@ cmd_help() {
 *Acciones*
   /reset — limpiar estado de fallo
   /silence [min|status|off] — silenciar, ver estado o desactivar silencio
+  /disablereboot on|off|status — deshabilitar/habilitar acciones correctivas (WAN/Fritz/server)
   /mute <url|all> <min> — silenciar URL específica para el watchdog
   /restart wan — reconexión WAN forzada + informe en ${FRITZ_WAN_WAIT_MINUTES} min
   /restart router — reboot FritzBox + informe en ${FRITZ_WAIT_MINUTES} min
@@ -703,6 +704,48 @@ Usa \`/silence status\` para ver el tiempo restante, o \`/silence off\` para des
   log "$BL [silence] Silencio ${minutes} min activado desde Telegram."
 }
 
+# /disablereboot on|off|status — deshabilita acciones correctivas (WAN/Fritz/server reboot)
+cmd_disablereboot() {
+  local chat_id="$1" arg="${2:-status}"
+
+  case "$arg" in
+    on)
+      if [ -f "$STATE_DISABLEREBOOT_FILE" ]; then
+        telegram_send "$chat_id" "ℹ️ Las acciones correctivas ya estaban deshabilitadas."
+        return
+      fi
+      _write_state "$STATE_DISABLEREBOOT_FILE" "$(date +%s)"
+      telegram_send "$chat_id" "🚫 *Acciones correctivas deshabilitadas.*
+La monitorización de URLs continúa, pero el watchdog *no ejecutará* reconexión WAN, reboot de FritzBox ni reboot del servidor.
+Usa \`/disablereboot off\` para reactivar."
+      log "$BL [disablereboot] Acciones correctivas deshabilitadas desde Telegram."
+      ;;
+    off)
+      if [ ! -f "$STATE_DISABLEREBOOT_FILE" ]; then
+        telegram_send "$chat_id" "ℹ️ Las acciones correctivas ya estaban habilitadas."
+        return
+      fi
+      rm -f "$STATE_DISABLEREBOOT_FILE"
+      telegram_send "$chat_id" "✅ *Acciones correctivas reactivadas.*
+El watchdog volverá a actuar sobre la FritzBox y el servidor si se detecta un fallo."
+      log "$BL [disablereboot] Acciones correctivas reactivadas desde Telegram."
+      ;;
+    status)
+      if [ -f "$STATE_DISABLEREBOOT_FILE" ]; then
+        local since_ts since_min
+        since_ts=$(_read_state_ts "$STATE_DISABLEREBOOT_FILE")
+        since_min=$(( ($(date +%s) - since_ts) / 60 ))
+        telegram_send "$chat_id" "🚫 *Acciones correctivas deshabilitadas* (hace ${since_min} min).
+Usa \`/disablereboot off\` para reactivar."
+      else
+        telegram_send "$chat_id" "✅ Acciones correctivas *habilitadas* (comportamiento normal)."
+      fi
+      ;;
+    *)
+      telegram_send "$chat_id" "❓ Uso: \`/disablereboot on|off|status\`" ;;
+  esac
+}
+
 # /mute <url|all> <minutos> — silenciar URL(s) específica(s) para el watchdog
 cmd_mute() {
   local chat_id="$1" text="${2:-}"
@@ -897,6 +940,18 @@ cmd_diagnose() {
 *Certificados TLS:*
 $(printf '%b' "$tls_lines")"
 
+  local disablereboot_line=""
+  if [ -f "$STATE_DISABLEREBOOT_FILE" ]; then
+    local _dr_ts _dr_min
+    _dr_ts=$(_read_state_ts "$STATE_DISABLEREBOOT_FILE")
+    _dr_min=$(( ($(date +%s) - _dr_ts) / 60 ))
+    disablereboot_line="
+*Acciones correctivas:* 🚫 DESHABILITADAS (hace ${_dr_min} min)"
+  else
+    disablereboot_line="
+*Acciones correctivas:* ✅ habilitadas"
+  fi
+
   telegram_send "$chat_id" "🔍 *Diagnóstico completo*
 🖥 $(hostname) — $(date '+%Y-%m-%d %H:%M:%S')
 
@@ -905,6 +960,7 @@ $(printf '%b' "$tls_lines")"
 *DNS:* ${dns_line}
 
 *FritzBox:* ${fritz_line}
+${disablereboot_line}
 
 *URLs monitorizadas:*
 $(printf '%b' "$url_lines")${tls_section}
@@ -1077,8 +1133,9 @@ dispatch_command() {
     /speedtest)     cmd_speedtest "$chat_id" ;;
     /diagnose)      cmd_diagnose "$chat_id" ;;
     /reset)         cmd_reset "$chat_id" ;;
-    /silence)       cmd_silence "$chat_id" "$arg" ;;
-    /mute)          cmd_mute "$chat_id" "$text" ;;
+    /silence)          cmd_silence "$chat_id" "$arg" ;;
+    /disablereboot)    cmd_disablereboot "$chat_id" "$arg" ;;
+    /mute)             cmd_mute "$chat_id" "$text" ;;
     /restart)       cmd_restart "$chat_id" "$arg" ;;
     /reboot_fritz)  cmd_reboot_fritz "$chat_id" ;;
     /reboot_server) cmd_reboot_server "$chat_id" ;;

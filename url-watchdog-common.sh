@@ -645,6 +645,12 @@ build_status_message() {
     fi
   fi
 
+  local disablereboot_info=""
+  if [ -f "${STATE_DISABLEREBOOT_FILE:-}" ]; then
+    disablereboot_info="
+🚫 *Acciones correctivas deshabilitadas* (/disablereboot on)"
+  fi
+
   local silence_info=""
   if [ -f "$STATE_SILENCE_FILE" ]; then
     local silence_until now remaining
@@ -692,7 +698,7 @@ build_status_message() {
 *URLs monitorizadas:*
 $(printf '  • %s\n' "${URL_ARRAY[@]}")
 *Flujo:* >${MAX_FAIL_MINUTES}min → WAN reconect → +${FRITZ_WAN_WAIT_MINUTES}min → Fritz reboot → +${FRITZ_WAIT_MINUTES}min → server reboot
-*Modo:* ${mode_desc}${silence_info}${queue_info}${extra}"
+*Modo:* ${mode_desc}${disablereboot_info}${silence_info}${queue_info}${extra}"
 }
 
 # --- Historial de incidentes --------------------------------
